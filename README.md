@@ -1,0 +1,5 @@
+squirssi
+========
+
+An IRC client.
+
