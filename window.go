@@ -42,10 +42,10 @@ func (c *Status) Title() string {
 type Channel struct {
 	bufferedWindow
 
-	name    string
-	topic   string
-	modes   string
-	users   []string
+	name  string
+	topic string
+	modes string
+	users []string
 }
 
 func (c *Channel) Title() string {
@@ -59,7 +59,7 @@ func (c *Channel) Users() []string {
 type DirectMessage struct {
 	bufferedWindow
 
-	user    string
+	user string
 }
 
 func (c *DirectMessage) Title() string {

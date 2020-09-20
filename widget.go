@@ -11,9 +11,8 @@ type ActivityTabPane struct {
 	*widgets.TabPane
 
 	TabsWithActivity map[int]struct{}
-	ActivityStyle ui.Style
+	ActivityStyle    ui.Style
 }
-
 
 func (self *ActivityTabPane) Draw(buf *ui.Buffer) {
 	self.Block.Draw(buf)

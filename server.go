@@ -65,7 +65,7 @@ func (srv *Server) initUI() {
 	srv.chatPane.PaddingRight = 1
 
 	srv.statusBar = &ActivityTabPane{
-		TabPane: widgets.NewTabPane(" 0 "),
+		TabPane:       widgets.NewTabPane(" 0 "),
 		ActivityStyle: ui.NewStyle(ui.ColorBlack, ui.ColorWhite),
 	}
 	srv.statusBar.SetRect(0, srv.ScreenHeight-3, srv.ScreenWidth, srv.ScreenHeight)
