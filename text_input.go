@@ -4,14 +4,19 @@ import (
 	"github.com/gizak/termui/v3/widgets"
 )
 
-const Cursor = "█"
-const CursorLength = len(Cursor)
+const CursorFullBlock = "█"
 
 // A TextInput is a Paragraph widget with editable contents.
 // A cursor block character is printed at the end of the contents and
 // transparently handled when updating those contents.
 type TextInput struct {
 	*widgets.Paragraph
+
+	// Character used to indicate the TextInput is focused and
+	// awaiting input.
+	cursor string
+	// Length of the cursor character at the end of the input.
+	cursorLen int
 
 	// Length of the current prefix in the text.
 	// Calculated only when resetting.
@@ -22,18 +27,26 @@ type TextInput struct {
 	Prefix func() string
 }
 
+func NewTextInput(cursor string) *TextInput {
+	return &TextInput{
+		Paragraph: widgets.NewParagraph(),
+		cursor:    cursor,
+		cursorLen: len(cursor),
+	}
+}
+
 // Consume returns and clears the current input in the TextInput.
 func (i *TextInput) Consume() string {
 	defer i.Reset()
 	if i.Len() < 1 {
 		return ""
 	}
-	return i.Text[i.prefixLen : len(i.Text)-CursorLength]
+	return i.Text[i.prefixLen : len(i.Text)-i.cursorLen]
 }
 
 // Len returns the length of the contents of the TextInput.
 func (i *TextInput) Len() int {
-	return len(i.Text) - CursorLength - i.prefixLen
+	return len(i.Text) - i.cursorLen - i.prefixLen
 }
 
 // Reset the contents of the TextInput.
@@ -43,18 +56,18 @@ func (i *TextInput) Reset() {
 		prefix = i.Prefix()
 	}
 	i.prefixLen = len(prefix)
-	i.Text = prefix + Cursor
+	i.Text = prefix + i.cursor
 }
 
 // Append adds the given string to the end of the editable content.
 func (i *TextInput) Append(in string) {
-	i.Text = i.Text[0:len(i.Text)-CursorLength] + in + Cursor
+	i.Text = i.Text[0:len(i.Text)-i.cursorLen] + in + i.cursor
 }
 
 // Remove the last character from the end of the editable content.
 func (i *TextInput) Backspace() {
-	if len(i.Paragraph.Text) > i.prefixLen+CursorLength {
-		i.Text = (i.Text)[0:len(i.Text)-CursorLength-1] + Cursor
+	if len(i.Paragraph.Text) > i.prefixLen+i.cursorLen {
+		i.Text = (i.Text)[0:len(i.Text)-i.cursorLen-1] + i.cursor
 	}
 }
 
@@ -76,12 +89,10 @@ type ModedTextInput struct {
 }
 
 // NewModedTextInput creates a new ModedTextInput.
-func NewModedTextInput() *ModedTextInput {
+func NewModedTextInput(cursor string) *ModedTextInput {
 	i := &ModedTextInput{
-		TextInput: TextInput{
-			Paragraph: widgets.NewParagraph(),
-		},
-		mode: ModeMessage,
+		TextInput: *NewTextInput(cursor),
+		mode:      ModeMessage,
 	}
 	i.Prefix = func() string {
 		if i.mode == ModeCommand {

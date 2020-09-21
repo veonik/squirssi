@@ -61,7 +61,7 @@ func init() {
 	if err != nil {
 		logrus.Fatalln(err)
 	}
-	err = os.MkdirAll(bp, os.FileMode(0644))
+	err = os.MkdirAll(bp, 0644)
 	if err != nil {
 		logrus.Fatalln(err)
 	}
@@ -93,11 +93,6 @@ func main() {
 	if err != nil {
 		logrus.Fatalln("error starting squirssi:", err)
 	}
-	o, err := os.OpenFile("squirssi.log", os.O_RDWR|os.O_CREATE|os.O_APPEND, 0644)
-	if err != nil {
-		logrus.Fatalln("error open squirssi log:", err)
-	}
-	logrus.SetOutput(o)
 	defer srv.Close()
 	srv.Start()
 }

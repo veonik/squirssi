@@ -1,7 +1,5 @@
-code.dopame.me/veonik/squircy3 v0.0.0-20200919204616-86f0894e12ac h1:Yu++XHLgBLd8+JkMBuNOTauFnJgW4FdyZJ9/B15qsI8=
-code.dopame.me/veonik/squircy3 v0.0.0-20200919204616-86f0894e12ac/go.mod h1:FMNo74A2CmtfQKFHBGA0AwZcfkAB8QH9KGcwQTK0iuI=
-code.dopame.me/veonik/squircy3 v0.0.0-20200920131207-ed20f8761f63 h1:F+w2oeimHKvKsuZrEYKGF28+qzKA71o+2YT4bIbPvGs=
-code.dopame.me/veonik/squircy3 v0.0.0-20200920131207-ed20f8761f63/go.mod h1:D0PZ58ANI0zuFIgCLrhmBSZQmLeKFd0vL+6YP2AamYc=
+code.dopame.me/veonik/squircy3 v0.0.0-20200921021324-82d536b9a59b h1:3wWnqhxFq3DkYgFRLzdRb77BZVnWAdgbs6cDgLE9e8g=
+code.dopame.me/veonik/squircy3 v0.0.0-20200921021324-82d536b9a59b/go.mod h1:D0PZ58ANI0zuFIgCLrhmBSZQmLeKFd0vL+6YP2AamYc=
 github.com/BurntSushi/toml v0.3.1 h1:WXkYYl6Yr3qBf1K79EBnL4mak0OimBfB0XUf9Vl28OQ=
 github.com/BurntSushi/toml v0.3.1/go.mod h1:xHWCNGjB5oqiDr8zfno3MHue2Ht5sIBksp03qcyfWMU=
 github.com/davecgh/go-spew v1.1.0/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
@@ -37,8 +35,6 @@ github.com/nsf/termbox-go v0.0.0-20190121233118-02980233997d h1:x3S6kxmy49zXVVyh
 github.com/nsf/termbox-go v0.0.0-20190121233118-02980233997d/go.mod h1:IuKpRQcYE1Tfu+oAQqaLisqDeXgjyyltCfsaoYN18NQ=
 github.com/peterh/liner v1.1.0 h1:f+aAedNJA6uk7+6rXsYBnhdo4Xux7ESLe+kcuVUF5os=
 github.com/peterh/liner v1.1.0/go.mod h1:CRroGNssyjTd/qIG2FyxByd2S8JEAZXBl4qUrZf8GS0=
-github.com/pkg/errors v0.8.1 h1:iURUrRGxPUNPdy5/HRSm+Yj6okJ6UtLINN0Q9M4+h3I=
-github.com/pkg/errors v0.8.1/go.mod h1:bwawxfHBFNV+L2hUp1rHADufV3IMtnDRdf1r5NINEl0=
 github.com/pkg/errors v0.9.1 h1:FEBLx1zS214owpjy7qsBeixbURkuhQAwrK5UwLGTwt4=
 github.com/pkg/errors v0.9.1/go.mod h1:bwawxfHBFNV+L2hUp1rHADufV3IMtnDRdf1r5NINEl0=
 github.com/pmezard/go-difflib v1.0.0 h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZbAQM=

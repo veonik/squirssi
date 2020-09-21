@@ -4,11 +4,11 @@ package squirssi
 import (
 	"fmt"
 	"os"
-	"strconv"
 	"strings"
 	"sync"
 
 	"code.dopame.me/veonik/squircy3/event"
+	"code.dopame.me/veonik/squircy3/irc"
 	ui "github.com/gizak/termui/v3"
 	"github.com/gizak/termui/v3/widgets"
 	"github.com/sirupsen/logrus"
@@ -17,6 +17,8 @@ import (
 )
 
 type Server struct {
+	*logrus.Logger
+
 	ScreenWidth, ScreenHeight int
 
 	mainWindow *ui.Grid
@@ -27,21 +29,27 @@ type Server struct {
 	userListPane *widgets.Table
 
 	events *event.Dispatcher
+	irc    *irc.Manager
 
 	windows []Window
+	status  *Status
 
 	mu sync.Mutex
 }
 
-func NewServer(ev *event.Dispatcher) (*Server, error) {
+func NewServer(ev *event.Dispatcher, irc *irc.Manager) (*Server, error) {
 	if err := ui.Init(); err != nil {
 		return nil, err
 	}
 	w, h := ui.TerminalDimensions()
 	srv := &Server{
+		Logger: logrus.StandardLogger(),
+
 		ScreenWidth:  w,
 		ScreenHeight: h,
-		events:       ev,
+
+		events: ev,
+		irc:    irc,
 	}
 	srv.initUI()
 	return srv, nil
@@ -77,14 +85,13 @@ func (srv *Server) initUI() {
 	srv.statusBar.BorderBottom = false
 	srv.statusBar.BorderStyle.Fg = colors.DodgerBlue1
 
-	srv.inputTextBox = NewModedTextInput()
+	srv.inputTextBox = NewModedTextInput(CursorFullBlock)
 	srv.inputTextBox.Border = false
 
 	srv.mainWindow = ui.NewGrid()
 
-	status := Status{}
-
-	srv.windows = []Window{&status}
+	srv.status = &Status{bufferedWindow: newBufferedWindow("status", srv.events)}
+	srv.windows = []Window{srv.status}
 }
 
 func (srv *Server) Close() {
@@ -198,38 +205,24 @@ func (srv *Server) handleKey(e ui.Event) {
 		if channel == nil {
 			return
 		}
-		defer srv.Render()
 		if len(in.Text) == 0 {
 			return
 		}
 		switch in.Kind {
 		case ModeCommand:
 			args := strings.Split(in.Text, " ")
-			cmd := args[0]
-			switch cmd {
-			case "w":
-				if len(args) < 2 {
-					return
-				}
-				ch, err := strconv.Atoi(args[1])
-				if err != nil {
-					panic(err)
-					return
-				}
-				if ch < len(srv.statusBar.TabNames) {
-					srv.statusBar.ActiveTabIndex = ch
-					srv.Update()
-					srv.Render()
-				}
+			c := args[0]
+			if cmd, ok := builtIns[c]; ok {
+				cmd(srv, args)
 			}
 		case ModeMessage:
-			if c, ok := channel.(*Channel); ok {
-				c.lines = append(c.lines, "<veonik> "+in.Text)
-			} else if dm, ok := channel.(*DirectMessage); ok {
-				dm.lines = append(dm.lines, "<veonik> "+in.Text)
+			if err := srv.irc.Do(func(c *irc.Connection) error {
+				c.Privmsg(channel.Title(), in.Text)
+				_, err := channel.Write([]byte("<veonik> " + in.Text))
+				return err
+			}); err != nil {
+				logrus.Warnln("failed to send message:", err)
 			}
-			srv.Update()
-			srv.Render()
 		}
 
 	default:
@@ -253,42 +246,9 @@ func (srv *Server) resize() {
 }
 
 func (srv *Server) bind() {
-	srv.events.Bind("irc.JOIN", event.HandlerFunc(func(ev *event.Event) {
-		var win Window
-		target := ev.Data["Target"].(string)
-		for _, w := range srv.windows {
-			if w.Title() == target {
-				win = w
-				break
-			}
-		}
-		if win == nil {
-			ch := &Channel{name: target, users: []string{"veonik"}}
-			srv.windows = append(srv.windows, ch)
-		}
-	}))
-	srv.events.Bind("irc.PRIVMSG", event.HandlerFunc(func(ev *event.Event) {
-		var win Window
-		target := ev.Data["Target"].(string)
-		for _, w := range srv.windows {
-			if w.Title() == target {
-				win = w
-				break
-			}
-		}
-		if win == nil {
-			logrus.Warnln("received message with no Window:", target, ev.Data["Message"], ev.Data["Nick"])
-		} else {
-			if v, ok := win.(*Channel); ok {
-				if v.current == len(v.lines)-1 {
-					v.current++
-				}
-				v.lines = append(v.lines, fmt.Sprintf("<%s> %s", ev.Data["Nick"], ev.Data["Message"]))
-				srv.Update()
-				srv.Render()
-			}
-		}
-	}))
+	srv.events.Bind("ui.DIRTY", event.HandlerFunc(srv.onUIDirty))
+	srv.events.Bind("irc.JOIN", event.HandlerFunc(srv.onIRCJoin))
+	srv.events.Bind("irc.PRIVMSG", event.HandlerFunc(srv.onIRCPrivmsg))
 }
 
 func (srv *Server) Start() {
@@ -297,6 +257,7 @@ func (srv *Server) Start() {
 	srv.resize()
 	srv.Update()
 	srv.Render()
+	srv.Logger.SetOutput(srv.status)
 
 	uiEvents := ui.PollEvents()
 

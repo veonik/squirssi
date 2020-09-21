@@ -3,9 +3,9 @@
 
 SUBPACKAGES := colors
 
-SQUIRCY3_ROOT := ../squircy3
+SQUIRCY3_ROOT ?= ../squircy3
 PLUGINS := $(patsubst $(SQUIRCY3_ROOT)/plugins/%,%,$(wildcard $(SQUIRCY3_ROOT)/plugins/*))
-SOURCES := $(wildcard cmd/*/*.go) $(wildcard $(patsubst %,%/*.go,$(SUBPACKAGES)))
+SOURCES := $(wildcard *.go) $(wildcard cmd/*/*.go) $(wildcard $(patsubst %,%/*.go,$(SUBPACKAGES)))
 
 OUTPUT_BASE := out
 
