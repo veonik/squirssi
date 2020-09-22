@@ -3,8 +3,6 @@ package squirssi
 
 import (
 	"fmt"
-	"os"
-	"strings"
 	"sync"
 
 	"code.dopame.me/veonik/squircy3/event"
@@ -16,6 +14,7 @@ import (
 	"code.dopame.me/veonik/squirssi/colors"
 )
 
+// A Server handles user interaction and displaying screen elements.
 type Server struct {
 	*logrus.Logger
 
@@ -31,12 +30,38 @@ type Server struct {
 	events *event.Dispatcher
 	irc    *irc.Manager
 
+	currentNick string
+
 	windows []Window
 	status  *Status
 
 	mu sync.Mutex
 }
 
+type logFormatter struct{}
+
+func (f *logFormatter) Format(entry *logrus.Entry) ([]byte, error) {
+	lvl := ""
+	switch entry.Level {
+	case logrus.InfoLevel:
+		lvl = "[INFO ](fg:blue)"
+	case logrus.DebugLevel:
+		lvl = "[DEBUG](fg:white)"
+	case logrus.WarnLevel:
+		lvl = "[WARN ](fg:yellow)"
+	case logrus.ErrorLevel:
+		lvl = "[ERROR](fg:red)"
+	case logrus.FatalLevel:
+		lvl = "[FATAL](fg:white,bg:red)"
+	case logrus.TraceLevel:
+		lvl = "[TRACE](fg:white)"
+	case logrus.PanicLevel:
+		lvl = "[PANIC](fg:white,bg:red)"
+	}
+	return []byte(fmt.Sprintf("%s: %s", lvl, entry.Message)), nil
+}
+
+// NewServer creates a new server.
 func NewServer(ev *event.Dispatcher, irc *irc.Manager) (*Server, error) {
 	if err := ui.Init(); err != nil {
 		return nil, err
@@ -50,9 +75,104 @@ func NewServer(ev *event.Dispatcher, irc *irc.Manager) (*Server, error) {
 
 		events: ev,
 		irc:    irc,
+
+		status: &Status{bufferedWindow: newBufferedWindow("status", ev)},
 	}
+	srv.windows = []Window{srv.status}
+	srv.Logger.SetOutput(srv.status)
+	srv.Logger.SetFormatter(&logFormatter{})
 	srv.initUI()
 	return srv, nil
+}
+
+// WindowNamed returns the window with the given name, if it exists.
+func (srv *Server) WindowNamed(name string) Window {
+	var win Window
+	srv.mu.Lock()
+	defer srv.mu.Unlock()
+	for _, w := range srv.windows {
+		if w.Title() == name {
+			win = w
+			break
+		}
+	}
+	return win
+}
+
+// CloseWindow closes a window denoted by tab index.
+func (srv *Server) CloseWindow(ch int) {
+	if ch == 0 {
+		logrus.Warnln("CloseWindow: cant close status window")
+		return
+	}
+	srv.mu.Lock()
+	if ch >= len(srv.windows) {
+		logrus.Warnf("CloseWindow: no window #%d", ch)
+		srv.mu.Unlock()
+		return
+	}
+	srv.windows = append(srv.windows[:ch], srv.windows[ch+1:]...)
+	if ch >= srv.statusBar.ActiveTabIndex {
+		srv.statusBar.ActiveTabIndex = ch - 1
+	}
+	srv.mu.Unlock()
+	srv.Update()
+	srv.Render()
+}
+
+// ScrollPageUp scrolls one opage up in the current window.
+func (srv *Server) ScrollPageUp() {
+	srv.mu.Lock()
+	srv.chatPane.ScrollPageUp()
+	row := srv.chatPane.SelectedRow
+	channel := srv.windows[srv.statusBar.ActiveTabIndex]
+	srv.mu.Unlock()
+	if channel == nil {
+		return
+	}
+	channel.ScrollTo(row)
+	srv.Render()
+}
+
+// ScrollPageDown scrolls one page down in the current window.
+func (srv *Server) ScrollPageDown() {
+	srv.mu.Lock()
+	srv.chatPane.ScrollPageDown()
+	row := srv.chatPane.SelectedRow
+	channel := srv.windows[srv.statusBar.ActiveTabIndex]
+	srv.mu.Unlock()
+	if channel == nil {
+		return
+	}
+	channel.ScrollTo(row)
+	srv.Render()
+}
+
+// ScrollTop scrolls to the top of the current window.
+func (srv *Server) ScrollTop() {
+	srv.mu.Lock()
+	srv.chatPane.ScrollTop()
+	row := srv.chatPane.SelectedRow
+	channel := srv.windows[srv.statusBar.ActiveTabIndex]
+	srv.mu.Unlock()
+	if channel == nil {
+		return
+	}
+	channel.ScrollTo(row)
+	srv.Render()
+}
+
+// ScrollBottom scrolls to the end of the current window.
+func (srv *Server) ScrollBottom() {
+	srv.mu.Lock()
+	srv.chatPane.ScrollBottom()
+	channel := srv.windows[srv.statusBar.ActiveTabIndex]
+	srv.mu.Unlock()
+	if channel == nil {
+		return
+	}
+	channel.ScrollTo(-1)
+	srv.Render()
 }
 
 func (srv *Server) initUI() {
@@ -71,6 +191,7 @@ func (srv *Server) initUI() {
 	srv.chatPane.Border = true
 	srv.chatPane.PaddingLeft = 1
 	srv.chatPane.PaddingRight = 1
+	srv.chatPane.WrapText = true
 
 	srv.statusBar = &ActivityTabPane{
 		TabPane:       widgets.NewTabPane(" 0 "),
@@ -89,39 +210,16 @@ func (srv *Server) initUI() {
 	srv.inputTextBox.Border = false
 
 	srv.mainWindow = ui.NewGrid()
-
-	srv.status = &Status{bufferedWindow: newBufferedWindow("status", srv.events)}
-	srv.windows = []Window{srv.status}
 }
 
+// Close ends the UI session, returning control of stdout.
 func (srv *Server) Close() {
+	srv.mu.Lock()
+	defer srv.mu.Unlock()
 	ui.Close()
 }
 
-type screenElement int
-
-const (
-	InputTextBox screenElement = iota
-	StatusBar
-	MainWindow
-)
-
-func (srv *Server) RenderOnly(items ...screenElement) {
-	var its []ui.Drawable
-	for _, it := range items {
-		switch it {
-		case InputTextBox:
-			its = append(its, srv.inputTextBox)
-		case StatusBar:
-			its = append(its, srv.statusBar)
-		case MainWindow:
-			its = append(its, srv.mainWindow)
-		}
-	}
-	ui.Render(its...)
-}
-
-func tabNames(windows []Window) ([]string, map[int]struct{}) {
+func tabNames(windows []Window, active int) ([]string, map[int]struct{}) {
 	res := make([]string, len(windows))
 	activity := make(map[int]struct{})
 	for i := 0; i < len(windows); i++ {
@@ -129,25 +227,31 @@ func tabNames(windows []Window) ([]string, map[int]struct{}) {
 		if win.HasActivity() {
 			activity[i] = struct{}{}
 		}
-		res[i] = fmt.Sprintf(" %d ", i)
+		if active == i {
+			res[i] = fmt.Sprintf(" %s ", win.Title())
+		} else {
+			res[i] = fmt.Sprintf(" %d ", i)
+		}
 	}
 	return res, activity
 }
 
+// Update refreshes the state of the UI but stops short of rendering.
 func (srv *Server) Update() {
 	srv.mu.Lock()
 	defer srv.mu.Unlock()
-	channel := srv.windows[srv.statusBar.ActiveTabIndex]
-	if channel == nil {
+	win := srv.windows[srv.statusBar.ActiveTabIndex]
+	if win == nil {
 		return
 	}
-	srv.statusBar.TabNames, srv.statusBar.TabsWithActivity = tabNames(srv.windows)
-	srv.chatPane.Rows = channel.Lines()
-	srv.chatPane.Title = channel.Title()
-	srv.chatPane.SelectedRow = channel.CurrentLine()
+	win.Touch()
+	srv.statusBar.TabNames, srv.statusBar.TabsWithActivity = tabNames(srv.windows, srv.statusBar.ActiveTabIndex)
+	srv.chatPane.Rows = win.Lines()
+	srv.chatPane.Title = win.Title()
+	srv.chatPane.SelectedRow = win.CurrentLine()
 	srv.mainWindow.Items = nil
 	var rows [][]string
-	if v, ok := channel.(WindowWithUserList); ok {
+	if v, ok := win.(WindowWithUserList); ok {
 		for _, nick := range v.Users() {
 			rows = append(rows, []string{nick})
 		}
@@ -163,101 +267,64 @@ func (srv *Server) Update() {
 	srv.userListPane.Rows = rows
 }
 
-func (srv *Server) Render() {
-	srv.mu.Lock()
-	defer srv.mu.Unlock()
-	ui.Render(srv.mainWindow, srv.statusBar, srv.inputTextBox)
-}
+type screenElement int
 
-func (srv *Server) handleKey(e ui.Event) {
-	switch e.ID {
-	case "<C-c>":
-		srv.Close()
-		os.Exit(0)
-		return
-	case "<PageUp>":
-		srv.chatPane.ScrollPageUp()
-		srv.Render()
-	case "<PageDown>":
-		srv.chatPane.ScrollPageDown()
-		srv.Render()
-	case "<Space>":
-		srv.inputTextBox.Append(" ")
-		srv.RenderOnly(InputTextBox)
-	case "<Backspace>":
-		srv.inputTextBox.Backspace()
-		srv.RenderOnly(InputTextBox)
-	case "<C-5>":
-		srv.statusBar.FocusRight()
-		srv.Update()
-		srv.Render()
-	case "<Escape>":
-		srv.statusBar.FocusLeft()
-		srv.Update()
-		srv.Render()
-	case "<Tab>":
-	case "<Enter>":
-		in := srv.inputTextBox.Consume()
-		if srv.inputTextBox.Mode() == ModeCommand {
-			srv.inputTextBox.ToggleMode()
-		}
-		channel := srv.windows[srv.statusBar.ActiveTabIndex]
-		if channel == nil {
-			return
-		}
-		if len(in.Text) == 0 {
-			return
-		}
-		switch in.Kind {
-		case ModeCommand:
-			args := strings.Split(in.Text, " ")
-			c := args[0]
-			if cmd, ok := builtIns[c]; ok {
-				cmd(srv, args)
-			}
-		case ModeMessage:
-			if err := srv.irc.Do(func(c *irc.Connection) error {
-				c.Privmsg(channel.Title(), in.Text)
-				_, err := channel.Write([]byte("<veonik> " + in.Text))
-				return err
-			}); err != nil {
-				logrus.Warnln("failed to send message:", err)
-			}
-		}
+const (
+	InputTextBox screenElement = iota
+	StatusBar
+	MainWindow
+)
 
-	default:
-		if len(e.ID) != 1 {
-			// a single key resulted in more than one character, probably not a regular char
-			return
-		}
-		if e.ID == "/" && srv.inputTextBox.Len() == 0 {
-			srv.inputTextBox.ToggleMode()
-		} else {
-			srv.inputTextBox.Append(e.ID)
-		}
-		srv.RenderOnly(InputTextBox)
+func (srv *Server) preRender() {
+	if len(srv.chatPane.Rows) == 0 {
+		srv.chatPane.SelectedRow = 0
+	} else if srv.chatPane.SelectedRow < 0 {
+		srv.chatPane.ScrollBottom()
 	}
 }
 
+// RenderOnly renders select screen elements rather than the whole screen.
+func (srv *Server) RenderOnly(items ...screenElement) {
+	srv.mu.Lock()
+	defer srv.mu.Unlock()
+	var its []ui.Drawable
+	for _, it := range items {
+		switch it {
+		case InputTextBox:
+			its = append(its, srv.inputTextBox)
+		case StatusBar:
+			its = append(its, srv.statusBar)
+		case MainWindow:
+			srv.preRender()
+			its = append(its, srv.mainWindow)
+		}
+	}
+	ui.Render(its...)
+}
+
+// Render renders the current state to the screen.
+func (srv *Server) Render() {
+	srv.mu.Lock()
+	defer srv.mu.Unlock()
+	srv.preRender()
+	ui.Render(srv.mainWindow, srv.statusBar, srv.inputTextBox)
+}
+
 func (srv *Server) resize() {
+	srv.mu.Lock()
+	defer srv.mu.Unlock()
 	srv.statusBar.SetRect(0, srv.ScreenHeight-3, srv.ScreenWidth, srv.ScreenHeight)
 	srv.inputTextBox.SetRect(0, srv.ScreenHeight-srv.statusBar.Dy()-1, srv.ScreenWidth, srv.ScreenHeight-srv.statusBar.Dy())
 	srv.mainWindow.SetRect(0, 0, srv.ScreenWidth, srv.ScreenHeight-srv.statusBar.Dy()-srv.inputTextBox.Dy())
 }
 
-func (srv *Server) bind() {
-	srv.events.Bind("ui.DIRTY", event.HandlerFunc(srv.onUIDirty))
-	srv.events.Bind("irc.JOIN", event.HandlerFunc(srv.onIRCJoin))
-	srv.events.Bind("irc.PRIVMSG", event.HandlerFunc(srv.onIRCPrivmsg))
-}
-
+// Start begins the UI event loop and does the initial render.
 func (srv *Server) Start() {
 	srv.bind()
 	srv.inputTextBox.Reset()
 	srv.resize()
 	srv.Update()
 	srv.Render()
-	srv.Logger.SetOutput(srv.status)
 
 	uiEvents := ui.PollEvents()
 
@@ -265,7 +332,10 @@ func (srv *Server) Start() {
 		e := <-uiEvents
 		switch e.Type {
 		case ui.KeyboardEvent:
-			srv.handleKey(e)
+			// handle keyboard input outside of the event emitter to avoid
+			// too long a delay between keypress and the UI reacting.
+			srv.onUIKeyPress(e.ID)
+			srv.RenderOnly(InputTextBox)
 			srv.events.Emit("ui.KEYPRESS", map[string]interface{}{
 				"key": e.ID,
 			})
@@ -285,14 +355,17 @@ func (srv *Server) Start() {
 			if !ok {
 				panic(fmt.Sprintf("received termui Resize event but Payload was unexpected type %T", e.Payload))
 			}
+			srv.mu.Lock()
 			srv.ScreenHeight = resize.Height
 			srv.ScreenWidth = resize.Width
+			srv.mu.Unlock()
 			srv.resize()
+			srv.Update()
+			srv.Render()
 			srv.events.Emit("ui.RESIZE", map[string]interface{}{
 				"width":  resize.Width,
 				"height": resize.Height,
 			})
-			srv.Render()
 		}
 	}
 }

@@ -4,6 +4,7 @@ import (
 	"io"
 	"strings"
 	"sync"
+	"time"
 
 	"code.dopame.me/veonik/squircy3/event"
 )
@@ -15,9 +16,12 @@ type Window interface {
 	Title() string
 	// Contents of the Window, separated by line.
 	Lines() []string
+
 	// The bottom-most visible line number, or negative to indicate
 	// the window is pinned to the end of input.
 	CurrentLine() int
+	// Set the current line to pos. Set to negative to pin to the end of input.
+	ScrollTo(pos int)
 
 	// Clears the activity indicator for the window, it it's set.
 	Touch()
@@ -43,8 +47,9 @@ type bufferedWindow struct {
 
 func newBufferedWindow(name string, events *event.Dispatcher) bufferedWindow {
 	return bufferedWindow{
-		name:   name,
-		events: events,
+		name:    name,
+		events:  events,
+		current: -1,
 	}
 }
 
@@ -58,7 +63,8 @@ func (c *bufferedWindow) Write(p []byte) (n int, err error) {
 	defer c.events.Emit("ui.DIRTY", map[string]interface{}{
 		"name": c.name,
 	})
-	c.lines = append(c.lines, strings.TrimRight(string(p), "\n"))
+	t := time.Now().Format("[15:04:05] ")
+	c.lines = append(c.lines, strings.TrimRight(t+string(p), "\n"))
 	c.hasUnseen = true
 	return len(p), nil
 }
@@ -87,6 +93,12 @@ func (c *bufferedWindow) CurrentLine() int {
 	return c.current
 }
 
+func (c *bufferedWindow) ScrollTo(pos int) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.current = pos
+}
+
 type Status struct {
 	bufferedWindow
 }
@@ -104,6 +116,8 @@ type Channel struct {
 }
 
 func (c *Channel) Users() []string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	return c.users
 }
 

@@ -16,7 +16,7 @@ func FromPlugins(m *plugin.Manager) (*Server, error) {
 	}
 	mplg, ok := plg.(*squirssiPlugin)
 	if !ok {
-		return nil, errors.Errorf("event: received unexpected plugin type")
+		return nil, errors.Errorf("event: received unexpected plugin type %T", plg)
 	}
 	return mplg.server, nil
 }

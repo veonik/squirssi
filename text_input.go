@@ -35,22 +35,38 @@ func NewTextInput(cursor string) *TextInput {
 	}
 }
 
+// Peek returns the current input in the TextInput without clearing.
+func (i *TextInput) Peek() string {
+	if i.Len() < 1 {
+		return ""
+	}
+	i.Lock()
+	defer i.Unlock()
+	return i.Text[i.prefixLen : len(i.Text)-i.cursorLen]
+}
+
 // Consume returns and clears the current input in the TextInput.
 func (i *TextInput) Consume() string {
 	defer i.Reset()
 	if i.Len() < 1 {
 		return ""
 	}
+	i.Lock()
+	defer i.Unlock()
 	return i.Text[i.prefixLen : len(i.Text)-i.cursorLen]
 }
 
 // Len returns the length of the contents of the TextInput.
 func (i *TextInput) Len() int {
+	i.Lock()
+	defer i.Unlock()
 	return len(i.Text) - i.cursorLen - i.prefixLen
 }
 
 // Reset the contents of the TextInput.
 func (i *TextInput) Reset() {
+	i.Lock()
+	defer i.Unlock()
 	prefix := ""
 	if i.Prefix != nil {
 		prefix = i.Prefix()
@@ -61,12 +77,16 @@ func (i *TextInput) Reset() {
 
 // Append adds the given string to the end of the editable content.
 func (i *TextInput) Append(in string) {
+	i.Lock()
+	defer i.Unlock()
 	i.Text = i.Text[0:len(i.Text)-i.cursorLen] + in + i.cursor
 }
 
 // Remove the last character from the end of the editable content.
 func (i *TextInput) Backspace() {
-	if len(i.Paragraph.Text) > i.prefixLen+i.cursorLen {
+	i.Lock()
+	defer i.Unlock()
+	if len(i.Text) > i.prefixLen+i.cursorLen {
 		i.Text = (i.Text)[0:len(i.Text)-i.cursorLen-1] + i.cursor
 	}
 }
@@ -105,16 +125,20 @@ func NewModedTextInput(cursor string) *ModedTextInput {
 
 // Mode returns the current editing mode.
 func (i *ModedTextInput) Mode() InputMode {
+	i.Lock()
+	defer i.Unlock()
 	return i.mode
 }
 
 // ToggleMode switches between the editing modes.
 func (i *ModedTextInput) ToggleMode() {
+	i.Lock()
 	if i.mode == ModeMessage {
 		i.mode = ModeCommand
 	} else {
 		i.mode = ModeMessage
 	}
+	i.Unlock()
 	i.Reset()
 }
 
@@ -126,8 +150,11 @@ type ModedText struct {
 
 // Consume returns and clears the ModedText in the ModedTextInput.
 func (i *ModedTextInput) Consume() ModedText {
+	txt := i.TextInput.Consume()
+	i.Lock()
+	defer i.Unlock()
 	return ModedText{
 		Kind: i.mode,
-		Text: i.TextInput.Consume(),
+		Text: txt,
 	}
 }
