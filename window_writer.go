@@ -10,7 +10,7 @@ import (
 
 type Message struct {
 	string
-	mine bool
+	mine   bool
 	refsMe bool
 }
 
@@ -130,7 +130,7 @@ func WritePart(win Window, nick Nick, message string) {
 	if title == message {
 		message = ""
 	} else {
-		message = " ("+message+")"
+		message = " (" + message + ")"
 	}
 	if _, err := win.Write([]byte(fmt.Sprintf("%s[|](fg:grey) %s left %s%s", padding, nick.String(), title, message))); err != nil {
 		logrus.Warnln("%s: failed to write part message:", err)
@@ -142,7 +142,7 @@ func WriteKick(win Window, nick Nick, message string) {
 	if nick.string == message {
 		message = ""
 	} else {
-		message = " ("+message+")"
+		message = " (" + message + ")"
 	}
 	if _, err := win.Write([]byte(fmt.Sprintf("%s[|](fg:grey) %s got kicked from %s%s", padding, nick.String(), win.Title(), message))); err != nil {
 		logrus.Warnln("failed to write kick message:", err)

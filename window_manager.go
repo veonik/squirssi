@@ -27,6 +27,7 @@ func NewWindowManager(ev *event.Dispatcher) *WindowManager {
 }
 
 type activityType int
+
 const TabHasActivity activityType = 0
 const TabHasNotice activityType = 1
 
@@ -120,7 +121,7 @@ func (wm *WindowManager) SelectIndex(idx int) {
 func (wm *WindowManager) SelectNext() {
 	wm.mu.Lock()
 	defer wm.mu.Unlock()
-	idx := wm.activeIndex+1
+	idx := wm.activeIndex + 1
 	if idx >= len(wm.windows) || idx < 0 {
 		idx = 0
 	}
@@ -131,9 +132,9 @@ func (wm *WindowManager) SelectNext() {
 func (wm *WindowManager) SelectPrev() {
 	wm.mu.Lock()
 	defer wm.mu.Unlock()
-	idx := wm.activeIndex-1
+	idx := wm.activeIndex - 1
 	if idx >= len(wm.windows) || idx < 0 {
-		idx = len(wm.windows)-1
+		idx = len(wm.windows) - 1
 	}
 	wm.activeIndex = idx
 	wm.events.Emit("ui.DIRTY", nil)
@@ -163,7 +164,7 @@ func (wm *WindowManager) ScrollOffset(offset int) {
 	wm.mu.RLock()
 	win := wm.windows[wm.activeIndex]
 	wm.mu.RUnlock()
-	wm.ScrollTo(win.CurrentLine()+offset)
+	wm.ScrollTo(win.CurrentLine() + offset)
 }
 
 // ScrollTo scrolls the currently active window to the given position.

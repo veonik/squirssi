@@ -45,21 +45,20 @@ type bufferedWindow struct {
 	lines   []string
 	current int
 
-	hasUnseen bool
-	hasNotice bool
+	hasUnseen  bool
+	hasNotice  bool
 	autoScroll bool
 
 	events *event.Dispatcher
 	mu     sync.RWMutex
 }
 
-
 func newBufferedWindow(name string, events *event.Dispatcher) bufferedWindow {
 	return bufferedWindow{
-		name:    name,
-		events:  events,
+		name:   name,
+		events: events,
 
-		current: -1,
+		current:    -1,
 		autoScroll: true,
 	}
 }
@@ -121,7 +120,7 @@ func (c *bufferedWindow) CurrentLine() int {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	if c.autoScroll {
-		return len(c.lines)-1
+		return len(c.lines) - 1
 	}
 	return c.current
 }

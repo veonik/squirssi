@@ -44,9 +44,9 @@ func (i *TextInput) Peek() string {
 	}
 	i.Lock()
 	defer i.Unlock()
-	i.Text = strings.Replace(i.Text, "[C](mod:reverse)", string(0x03),-1)
-	i.Text = strings.Replace(i.Text, "[B](mod:reverse)", string(0x02),-1)
-	i.Text = strings.Replace(i.Text, "[U](mod:reverse)", string(0x1F),-1)
+	i.Text = strings.Replace(i.Text, "[C](mod:reverse)", string(0x03), -1)
+	i.Text = strings.Replace(i.Text, "[B](mod:reverse)", string(0x02), -1)
+	i.Text = strings.Replace(i.Text, "[U](mod:reverse)", string(0x1F), -1)
 	t := i.Text[i.prefixLen : len(i.Text)-i.cursorLen]
 	i.Text = strings.Replace(i.Text, string(0x03), "[C](mod:reverse)", -1)
 	i.Text = strings.Replace(i.Text, string(0x02), "[B](mod:reverse)", -1)
@@ -63,9 +63,9 @@ func (i *TextInput) Consume() string {
 	i.Lock()
 	defer i.Unlock()
 	t := i.Text[i.prefixLen : len(i.Text)-i.cursorLen]
-	t = strings.Replace(t, "[C](mod:reverse)", string(0x03),-1)
-	t = strings.Replace(t, "[B](mod:reverse)", string(0x02),-1)
-	t = strings.Replace(t, "[U](mod:reverse)", string(0x1F),-1)
+	t = strings.Replace(t, "[C](mod:reverse)", string(0x03), -1)
+	t = strings.Replace(t, "[B](mod:reverse)", string(0x02), -1)
+	t = strings.Replace(t, "[U](mod:reverse)", string(0x1F), -1)
 	return t
 }
 
@@ -73,9 +73,9 @@ func (i *TextInput) Consume() string {
 func (i *TextInput) Len() int {
 	i.Lock()
 	defer i.Unlock()
-	i.Text = strings.Replace(i.Text, "[C](mod:reverse)", string(0x03),-1)
-	i.Text = strings.Replace(i.Text, "[B](mod:reverse)", string(0x02),-1)
-	i.Text = strings.Replace(i.Text, "[U](mod:reverse)", string(0x1F),-1)
+	i.Text = strings.Replace(i.Text, "[C](mod:reverse)", string(0x03), -1)
+	i.Text = strings.Replace(i.Text, "[B](mod:reverse)", string(0x02), -1)
+	i.Text = strings.Replace(i.Text, "[U](mod:reverse)", string(0x1F), -1)
 	l := len(i.Text) - i.cursorLen - i.prefixLen
 	i.Text = strings.Replace(i.Text, string(0x03), "[C](mod:reverse)", -1)
 	i.Text = strings.Replace(i.Text, string(0x02), "[B](mod:reverse)", -1)
@@ -109,9 +109,9 @@ func (i *TextInput) Append(in string) {
 func (i *TextInput) Backspace() {
 	i.Lock()
 	defer i.Unlock()
-	i.Text = strings.Replace(i.Text, "[C](mod:reverse)", string(0x03),-1)
-	i.Text = strings.Replace(i.Text, "[B](mod:reverse)", string(0x02),-1)
-	i.Text = strings.Replace(i.Text, "[U](mod:reverse)", string(0x1F),-1)
+	i.Text = strings.Replace(i.Text, "[C](mod:reverse)", string(0x03), -1)
+	i.Text = strings.Replace(i.Text, "[B](mod:reverse)", string(0x02), -1)
+	i.Text = strings.Replace(i.Text, "[U](mod:reverse)", string(0x1F), -1)
 	if len(i.Text) > i.prefixLen+i.cursorLen {
 		i.Text = (i.Text)[0:len(i.Text)-i.cursorLen-1] + i.cursor
 	}

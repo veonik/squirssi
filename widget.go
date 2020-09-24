@@ -16,17 +16,17 @@ import (
 
 type ChatPane struct {
 	ui.Block
-	Rows             []string
-	WrapText         bool
-	TextStyle        ui.Style
-	SelectedRow      int
-	LeftPadding      int
+	Rows        []string
+	WrapText    bool
+	TextStyle   ui.Style
+	SelectedRow int
+	LeftPadding int
 }
 
 func NewChatPane() *ChatPane {
 	return &ChatPane{
-		Block:            *ui.NewBlock(),
-		TextStyle:        ui.Theme.List.Text,
+		Block:     *ui.NewBlock(),
+		TextStyle: ui.Theme.List.Text,
 	}
 }
 
@@ -69,7 +69,7 @@ func ParseIRCStyles(c []ui.Cell) []ui.Cell {
 			fg := ""
 			bg := ""
 			eat := 0
-			for j := i+1; j-i < 5 && j < len(c); j++ {
+			for j := i + 1; j-i < 5 && j < len(c); j++ {
 				cx := c[j]
 				if unicode.IsDigit(cx.Rune) {
 					eat++
@@ -115,7 +115,7 @@ func WrapCellsPadded(cells []ui.Cell, width uint, leftPadding int) []ui.Cell {
 	wrappedCells := []ui.Cell{}
 	i := 0
 	twoLines := false
-	loop:
+loop:
 	for x, _rune := range wrapped {
 		if _rune == '\n' {
 			wrappedCells = append(wrappedCells, ui.Cell{_rune, ui.StyleClear})
@@ -155,7 +155,7 @@ func (self *ChatPane) Draw(buf *ui.Buffer) {
 		l := len(p)
 		e := actualLen + l
 		actualLen = e
-		rows[i] = e-1
+		rows[i] = e - 1
 		for j := 0; j < l; j++ {
 			actuals = append(actuals, p[j])
 		}
@@ -219,7 +219,7 @@ type ActivityTabPane struct {
 
 func NewActivityTabPane() *ActivityTabPane {
 	return &ActivityTabPane{
-		TabPane:       widgets.NewTabPane(" 0 "),
+		TabPane: widgets.NewTabPane(" 0 "),
 	}
 }
 

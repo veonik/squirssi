@@ -4,3 +4,4 @@ plugins/
 plugins
 squirssi*.log
 vendor/
+config.toml

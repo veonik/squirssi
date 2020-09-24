@@ -40,7 +40,7 @@ func (f *logFormatter) Format(entry *logrus.Entry) ([]byte, error) {
 
 type HistoryManager struct {
 	histories map[Window][]ModedText
-	cursors map[Window]int
+	cursors   map[Window]int
 
 	mu sync.Mutex
 }
@@ -48,7 +48,7 @@ type HistoryManager struct {
 func NewHistoryManager() *HistoryManager {
 	return &HistoryManager{
 		histories: make(map[Window][]ModedText),
-		cursors: make(map[Window]int),
+		cursors:   make(map[Window]int),
 	}
 }
 
@@ -58,7 +58,7 @@ func (hm *HistoryManager) Append(win Window, input ModedText) {
 	hm.cursors[win] = len(hm.histories[win])
 	hm.append(win, input)
 	hm.cursors[win] = len(hm.histories[win])
-	logrus.Infoln("resetting cursor for", win.Title(), "now on", hm.cursors[win])
+	logrus.Debugln("resetting cursor for", win.Title(), "now on", hm.cursors[win])
 }
 
 func (hm *HistoryManager) Insert(win Window, input ModedText) {
@@ -71,7 +71,7 @@ func (hm *HistoryManager) Insert(win Window, input ModedText) {
 }
 
 func (hm *HistoryManager) append(win Window, input ModedText) {
-	logrus.Infoln("inserting to history for", win.Title(), input, "at index", hm.cursors[win])
+	logrus.Debugln("inserting to history for", win.Title(), input, "at index", hm.cursors[win])
 	hm.histories[win] = append(append(append([]ModedText{}, hm.histories[win][:hm.cursors[win]]...), input), hm.histories[win][hm.cursors[win]:]...)
 }
 
@@ -79,7 +79,7 @@ func (hm *HistoryManager) current(win Window) ModedText {
 	if hm.cursors[win] < 0 {
 		hm.cursors[win] = 0
 	}
-	logrus.Infof("currently have %d records for %s", len(hm.histories[win]), win.Title())
+	logrus.Debugln("currently have %d records for %s", len(hm.histories[win]), win.Title())
 	if hm.cursors[win] >= len(hm.histories[win]) {
 		hm.cursors[win] = len(hm.histories[win])
 		return ModedText{}
@@ -98,7 +98,7 @@ func (hm *HistoryManager) Previous(win Window) ModedText {
 	defer hm.mu.Unlock()
 	hm.cursors[win] -= 1
 	res := hm.current(win)
-	logrus.Infoln("previous history for", win.Title(), hm.cursors[win])
+	logrus.Debugln("previous history for", win.Title(), hm.cursors[win])
 	return res
 }
 
@@ -107,7 +107,7 @@ func (hm *HistoryManager) Next(win Window) ModedText {
 	defer hm.mu.Unlock()
 	hm.cursors[win] += 1
 	res := hm.current(win)
-	logrus.Infoln("next history for", win.Title(), hm.cursors[win])
+	logrus.Debugln("next history for", win.Title(), hm.cursors[win])
 	return res
 }
 
@@ -130,9 +130,8 @@ type Server struct {
 
 	currentNick string
 
-	WindowManager *WindowManager
+	WindowManager  *WindowManager
 	HistoryManager *HistoryManager
-
 
 	mu   sync.RWMutex
 	done chan struct{}

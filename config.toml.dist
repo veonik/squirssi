@@ -1,0 +1,14 @@
+[irc]
+auto=true
+nick="squishyjones"
+user="mrjones"
+network="chat.freenode.net:6697"
+tls=true
+sasl=false
+#sasl_username=""
+#sasl_password=""
+#server_password=""
+
+[vm]
+modules_path="/tmp/squircy_modules"
+

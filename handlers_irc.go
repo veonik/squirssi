@@ -99,6 +99,7 @@ func onIRCNick(srv *Server, ev *IRCEvent) {
 	srv.mu.Lock()
 	if ev.Nick == srv.currentNick {
 		nick = MyNick(srv.currentNick)
+		srv.currentNick = newNick
 	}
 	srv.mu.Unlock()
 	WriteNick(srv.WindowManager, nick, newNick)
@@ -107,11 +108,11 @@ func onIRCNick(srv *Server, ev *IRCEvent) {
 func onIRCKick(srv *Server, ev *IRCEvent) {
 	channel := ev.Target
 	kicked := SomeNick(ev.Args[1])
-	srv.mu.Lock()
+	srv.mu.RLock()
 	if kicked.string == srv.currentNick {
 		kicked = MyNick(srv.currentNick)
 	}
-	srv.mu.Unlock()
+	srv.mu.RUnlock()
 	if kicked.me {
 		go func() {
 			<-time.After(2 * time.Second)
@@ -194,9 +195,9 @@ func onIRCWhois(srv *Server, ev *IRCEvent) {
 
 func onIRCNames(srv *Server, ev *IRCEvent) {
 	if ev.Code == "PART" || ev.Code == "KICK" {
-		srv.mu.Lock()
+		srv.mu.RLock()
 		myNick := srv.currentNick
-		srv.mu.Unlock()
+		srv.mu.RUnlock()
 		if ev.Nick == myNick {
 			// dont bother trying to get names when we are the one leaving
 			return
@@ -216,7 +217,9 @@ func onIRCNames(srv *Server, ev *IRCEvent) {
 func onIRCJoin(srv *Server, ev *IRCEvent) {
 	target := ev.Target
 	win := srv.WindowManager.Named(target)
+	srv.mu.RLock()
 	myNick := srv.currentNick
+	srv.mu.RUnlock()
 	if win == nil {
 		ch := &Channel{
 			bufferedWindow: newBufferedWindow(target, srv.events),
@@ -232,11 +235,11 @@ func onIRCPart(srv *Server, ev *IRCEvent) {
 	target := ev.Target
 	nick := SomeNick(ev.Nick)
 	win := srv.WindowManager.Named(target)
-	srv.mu.Lock()
+	srv.mu.RLock()
 	if ev.Nick == srv.currentNick {
 		nick = MyNick(srv.currentNick)
 	}
-	srv.mu.Unlock()
+	srv.mu.RUnlock()
 	if win == nil {
 		if !nick.me {
 			// dont bother logging if we are the ones leaving
@@ -251,9 +254,9 @@ func onIRCAction(srv *Server, ev *IRCEvent) {
 	direct := false
 	target := ev.Target
 	nick := ev.Nick
-	srv.mu.Lock()
+	srv.mu.RLock()
 	myNick := MyNick(srv.currentNick)
-	srv.mu.Unlock()
+	srv.mu.RUnlock()
 	if target == myNick.string {
 		// its a direct message!
 		direct = true
@@ -265,11 +268,9 @@ func onIRCAction(srv *Server, ev *IRCEvent) {
 			logrus.Warnln("received action message with no Window:", target, ev.Message, nick)
 			return
 		} else {
-			srv.mu.Lock()
 			ch := &DirectMessage{bufferedWindow: newBufferedWindow(target, srv.events)}
 			srv.WindowManager.Append(ch)
 			win = ch
-			srv.mu.Unlock()
 		}
 	}
 	msg := SomeMessage(ev.Message, myNick)
@@ -280,9 +281,9 @@ func onIRCPrivmsg(srv *Server, ev *IRCEvent) {
 	direct := false
 	target := ev.Target
 	nick := ev.Nick
-	srv.mu.Lock()
+	srv.mu.RLock()
 	myNick := MyNick(srv.currentNick)
-	srv.mu.Unlock()
+	srv.mu.RUnlock()
 	if target == myNick.string {
 		// its a direct message!
 		direct = true
@@ -294,11 +295,9 @@ func onIRCPrivmsg(srv *Server, ev *IRCEvent) {
 			logrus.Warnln("received message with no Window:", target, ev.Message, nick)
 			return
 		} else {
-			srv.mu.Lock()
 			ch := &DirectMessage{bufferedWindow: newBufferedWindow(target, srv.events)}
 			srv.WindowManager.Append(ch)
 			win = ch
-			srv.mu.Unlock()
 		}
 	}
 	msg := SomeMessage(ev.Message, myNick)
@@ -308,10 +307,10 @@ func onIRCPrivmsg(srv *Server, ev *IRCEvent) {
 func onIRCQuit(srv *Server, ev *IRCEvent) {
 	nick := SomeNick(ev.Nick)
 	message := ev.Message
-	srv.mu.Lock()
+	srv.mu.RLock()
 	if ev.Nick == srv.currentNick {
 		nick = MyNick(srv.currentNick)
 	}
-	srv.mu.Unlock()
+	srv.mu.RUnlock()
 	WriteQuit(srv.WindowManager, nick, message)
 }
