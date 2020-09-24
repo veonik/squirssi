@@ -26,11 +26,11 @@ func Initialize(m *plugin.Manager) (plugin.Plugin, error) {
 	if err != nil {
 		return nil, errors.Wrapf(err, "%s: missing required dependency (event)", pluginName)
 	}
-	irc, err := irc.FromPlugins(m)
+	ircp, err := irc.FromPlugins(m)
 	if err != nil {
 		return nil, errors.Wrapf(err, "%s: missing required dependency (irc)", pluginName)
 	}
-	srv, err := NewServer(ev, irc)
+	srv, err := NewServer(ev, ircp)
 	if err != nil {
 		return nil, errors.Wrapf(err, "%s: failed to initialize Server", pluginName)
 	}
@@ -44,4 +44,8 @@ type squirssiPlugin struct {
 
 func (p *squirssiPlugin) Name() string {
 	return "squirssi"
+}
+
+func (p *squirssiPlugin) HandleShutdown() {
+	p.server.Close()
 }

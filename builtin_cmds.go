@@ -12,6 +12,7 @@ import (
 type Command func(*Server, []string)
 
 var builtIns = map[string]Command{
+	"exit":  exitProgram,
 	"w":     selectWindow,
 	"wc":    closeWindow,
 	"join":  joinChannel,
@@ -19,6 +20,16 @@ var builtIns = map[string]Command{
 	"whois": whoisNick,
 	"names": namesChannel,
 	"nick":  changeNick,
+	"me":    actionMessage,
+	"msg":   msgTarget,
+}
+
+func exitProgram(srv *Server, _ []string) {
+	srv.mu.Lock()
+	defer srv.mu.Unlock()
+	if srv.interrupt != nil {
+		srv.interrupt()
+	}
 }
 
 func selectWindow(srv *Server, args []string) {
@@ -32,24 +43,13 @@ func selectWindow(srv *Server, args []string) {
 		logrus.Warnln("selectWindow: expected first argument to be an integer")
 		return
 	}
-	srv.mu.Lock()
-	if ch >= len(srv.windows) {
-		logrus.Warnf("selectWindow: no window #%d", ch)
-		srv.mu.Unlock()
-		return
-	}
-	srv.statusBar.ActiveTabIndex = ch
-	srv.mu.Unlock()
-	srv.Update()
-	srv.Render()
+	srv.WindowManager.SelectIndex(ch)
 }
 
 func closeWindow(srv *Server, args []string) {
 	var ch int
 	if len(args) < 2 {
-		srv.mu.Lock()
-		ch = srv.statusBar.ActiveTabIndex
-		srv.mu.Unlock()
+		ch = srv.WindowManager.ActiveIndex()
 	} else {
 		var err error
 		ch, err = strconv.Atoi(args[1])
@@ -58,7 +58,7 @@ func closeWindow(srv *Server, args []string) {
 			return
 		}
 	}
-	win := srv.windows[ch]
+	win := srv.WindowManager.Index(ch)
 	if strings.HasPrefix(win.Title(), "#") {
 		if err := srv.irc.Do(func(conn *irc.Connection) error {
 			conn.Part(win.Title())
@@ -67,7 +67,7 @@ func closeWindow(srv *Server, args []string) {
 			logrus.Warnln("closeWindow: failed to part channel before closing window")
 		}
 	}
-	srv.CloseWindow(ch)
+	srv.WindowManager.CloseIndex(ch)
 }
 
 func joinChannel(srv *Server, args []string) {
@@ -115,7 +115,7 @@ func namesChannel(srv *Server, args []string) {
 		return
 	}
 	channel := args[1]
-	win := srv.WindowNamed(channel)
+	win := srv.WindowManager.Named(channel)
 	if win == nil {
 		logrus.Warnln("namesChannel: no window named", channel)
 		return
@@ -155,4 +155,60 @@ func changeNick(srv *Server, args []string) {
 	}); err != nil {
 		logrus.Warnln("changeNick: error changing nick:", err)
 	}
+}
+
+func actionMessage(srv *Server, args []string) {
+	message := strings.Join(args[1:], " ")
+	window := srv.WindowManager.Active()
+	if window == nil || window.Title() == "status" {
+		return
+	}
+	if err := srv.irc.Do(func(conn *irc.Connection) error {
+		conn.Action(window.Title(), message)
+		return nil
+	}); err != nil {
+		logrus.Warnln("actionMessage: error sending message:", err)
+	}
+	srv.mu.Lock()
+	myNick := MyNick(srv.currentNick)
+	srv.mu.Unlock()
+	WriteAction(window, myNick, MyMessage(message))
+}
+
+func msgTarget(srv *Server, args []string) {
+	if len(args) < 3 {
+		logrus.Warnln("msgTarget: expects at least 2 arguments")
+		return
+	}
+	target := args[1]
+	if target == "status" {
+		return
+	}
+	message := strings.Join(args[2:], " ")
+	if err := srv.irc.Do(func(conn *irc.Connection) error {
+		conn.Privmsg(target, message)
+		return nil
+	}); err != nil {
+		logrus.Warnln("msgTarget: error sending message:", err)
+	}
+	window := srv.WindowManager.Named(target)
+	if !strings.HasPrefix(target, "#") {
+		// direct message!
+		if window == nil {
+			dm := &DirectMessage{
+				newBufferedWindow(target, srv.events),
+			}
+			srv.WindowManager.Append(dm)
+			window = dm
+		}
+	}
+	srv.mu.Lock()
+	myNick := MyNick(srv.currentNick)
+	srv.mu.Unlock()
+	if window == nil {
+		// no window for this but we might still have sent the message, so write it to the status window
+		window = srv.WindowManager.Index(0)
+		message = target + " -> " + message
+	}
+	WritePrivmsg(window, myNick, MyMessage(message))
 }

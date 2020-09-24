@@ -1,6 +1,8 @@
 package squirssi
 
 import (
+	"strings"
+
 	"github.com/gizak/termui/v3/widgets"
 )
 
@@ -42,7 +44,14 @@ func (i *TextInput) Peek() string {
 	}
 	i.Lock()
 	defer i.Unlock()
-	return i.Text[i.prefixLen : len(i.Text)-i.cursorLen]
+	i.Text = strings.Replace(i.Text, "[C](mod:reverse)", string(0x03),-1)
+	i.Text = strings.Replace(i.Text, "[B](mod:reverse)", string(0x02),-1)
+	i.Text = strings.Replace(i.Text, "[U](mod:reverse)", string(0x1F),-1)
+	t := i.Text[i.prefixLen : len(i.Text)-i.cursorLen]
+	i.Text = strings.Replace(i.Text, string(0x03), "[C](mod:reverse)", -1)
+	i.Text = strings.Replace(i.Text, string(0x02), "[B](mod:reverse)", -1)
+	i.Text = strings.Replace(i.Text, string(0x1F), "[U](mod:reverse)", -1)
+	return t
 }
 
 // Consume returns and clears the current input in the TextInput.
@@ -53,14 +62,25 @@ func (i *TextInput) Consume() string {
 	}
 	i.Lock()
 	defer i.Unlock()
-	return i.Text[i.prefixLen : len(i.Text)-i.cursorLen]
+	t := i.Text[i.prefixLen : len(i.Text)-i.cursorLen]
+	t = strings.Replace(t, "[C](mod:reverse)", string(0x03),-1)
+	t = strings.Replace(t, "[B](mod:reverse)", string(0x02),-1)
+	t = strings.Replace(t, "[U](mod:reverse)", string(0x1F),-1)
+	return t
 }
 
 // Len returns the length of the contents of the TextInput.
 func (i *TextInput) Len() int {
 	i.Lock()
 	defer i.Unlock()
-	return len(i.Text) - i.cursorLen - i.prefixLen
+	i.Text = strings.Replace(i.Text, "[C](mod:reverse)", string(0x03),-1)
+	i.Text = strings.Replace(i.Text, "[B](mod:reverse)", string(0x02),-1)
+	i.Text = strings.Replace(i.Text, "[U](mod:reverse)", string(0x1F),-1)
+	l := len(i.Text) - i.cursorLen - i.prefixLen
+	i.Text = strings.Replace(i.Text, string(0x03), "[C](mod:reverse)", -1)
+	i.Text = strings.Replace(i.Text, string(0x02), "[B](mod:reverse)", -1)
+	i.Text = strings.Replace(i.Text, string(0x1F), "[U](mod:reverse)", -1)
+	return l
 }
 
 // Reset the contents of the TextInput.
@@ -79,6 +99,9 @@ func (i *TextInput) Reset() {
 func (i *TextInput) Append(in string) {
 	i.Lock()
 	defer i.Unlock()
+	in = strings.Replace(in, string(0x03), "[C](mod:reverse)", -1)
+	in = strings.Replace(in, string(0x02), "[B](mod:reverse)", -1)
+	in = strings.Replace(in, string(0x1F), "[U](mod:reverse)", -1)
 	i.Text = i.Text[0:len(i.Text)-i.cursorLen] + in + i.cursor
 }
 
@@ -86,9 +109,15 @@ func (i *TextInput) Append(in string) {
 func (i *TextInput) Backspace() {
 	i.Lock()
 	defer i.Unlock()
+	i.Text = strings.Replace(i.Text, "[C](mod:reverse)", string(0x03),-1)
+	i.Text = strings.Replace(i.Text, "[B](mod:reverse)", string(0x02),-1)
+	i.Text = strings.Replace(i.Text, "[U](mod:reverse)", string(0x1F),-1)
 	if len(i.Text) > i.prefixLen+i.cursorLen {
 		i.Text = (i.Text)[0:len(i.Text)-i.cursorLen-1] + i.cursor
 	}
+	i.Text = strings.Replace(i.Text, string(0x03), "[C](mod:reverse)", -1)
+	i.Text = strings.Replace(i.Text, string(0x02), "[B](mod:reverse)", -1)
+	i.Text = strings.Replace(i.Text, string(0x1F), "[U](mod:reverse)", -1)
 }
 
 // InputMode defines different kinds of input handled by a ModedTextInput.
@@ -130,6 +159,14 @@ func (i *ModedTextInput) Mode() InputMode {
 	return i.mode
 }
 
+func (i *ModedTextInput) Set(in ModedText) {
+	i.Lock()
+	i.mode = in.Kind
+	i.Unlock()
+	i.Reset()
+	i.Append(in.Text)
+}
+
 // ToggleMode switches between the editing modes.
 func (i *ModedTextInput) ToggleMode() {
 	i.Lock()
@@ -150,11 +187,13 @@ type ModedText struct {
 
 // Consume returns and clears the ModedText in the ModedTextInput.
 func (i *ModedTextInput) Consume() ModedText {
-	txt := i.TextInput.Consume()
 	i.Lock()
-	defer i.Unlock()
+	mode := i.mode
+	i.mode = ModeMessage
+	i.Unlock()
+	txt := i.TextInput.Consume()
 	return ModedText{
-		Kind: i.mode,
+		Kind: mode,
 		Text: txt,
 	}
 }

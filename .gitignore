@@ -1,5 +1,6 @@
 .idea/
 out/
 plugins/
+plugins
 squirssi*.log
 vendor/

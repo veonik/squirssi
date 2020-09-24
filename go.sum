@@ -1,5 +1,7 @@
 code.dopame.me/veonik/squircy3 v0.0.0-20200921021324-82d536b9a59b h1:3wWnqhxFq3DkYgFRLzdRb77BZVnWAdgbs6cDgLE9e8g=
 code.dopame.me/veonik/squircy3 v0.0.0-20200921021324-82d536b9a59b/go.mod h1:D0PZ58ANI0zuFIgCLrhmBSZQmLeKFd0vL+6YP2AamYc=
+code.dopame.me/veonik/squircy3 v0.0.0-20200924052855-a0f559182525 h1:NkCqYaQxM02/IPmh2Epl1yi3/+SBrskLDwx3e7R3XNg=
+code.dopame.me/veonik/squircy3 v0.0.0-20200924052855-a0f559182525/go.mod h1:D0PZ58ANI0zuFIgCLrhmBSZQmLeKFd0vL+6YP2AamYc=
 github.com/BurntSushi/toml v0.3.1 h1:WXkYYl6Yr3qBf1K79EBnL4mak0OimBfB0XUf9Vl28OQ=
 github.com/BurntSushi/toml v0.3.1/go.mod h1:xHWCNGjB5oqiDr8zfno3MHue2Ht5sIBksp03qcyfWMU=
 github.com/davecgh/go-spew v1.1.0/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=

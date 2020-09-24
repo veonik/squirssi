@@ -5,7 +5,7 @@ SUBPACKAGES := colors
 
 SQUIRCY3_ROOT ?= ../squircy3
 PLUGINS := $(patsubst $(SQUIRCY3_ROOT)/plugins/%,%,$(wildcard $(SQUIRCY3_ROOT)/plugins/*))
-SOURCES := $(wildcard *.go) $(wildcard cmd/*/*.go) $(wildcard $(patsubst %,%/*.go,$(SUBPACKAGES)))
+SOURCES := $(wildcard *.go) $(wildcard cmd/*/*.go) $(wildcard $(patsubst %,%/*.go,$(SUBPACKAGES))) $(shell find vendor/ -type f -name '*.go')
 
 OUTPUT_BASE := out
 
@@ -25,7 +25,7 @@ clean:
 	rm -rf plugins/ && cp -r $(SQUIRCY3_ROOT)/plugins .
 	rm -rf $(OUTPUT_BASE)
 
-build: plugins squirssi
+build: squirssi
 
 generate: $(OUTPUT_BASE)/.generated
 
@@ -34,7 +34,7 @@ squirssi: $(SQUIRSSI_TARGET)
 plugins: $(PLUGIN_TARGETS)
 
 run: build
-	$(SQUIRSSI_TARGET) 2> squirssi_errors.log
+	$(SQUIRSSI_TARGET) 2>> squirssi_errors.log
 
 test: $(TESTDATA_NODEMODS_TARGET)
 	go test -tags netgo $(RACE) $(TEST_ARGS) ./...

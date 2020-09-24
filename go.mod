@@ -3,7 +3,7 @@ module code.dopame.me/veonik/squirssi
 go 1.14
 
 require (
-	code.dopame.me/veonik/squircy3 v0.0.0-20200921021324-82d536b9a59b
+	code.dopame.me/veonik/squircy3 v0.0.0-20200924052855-a0f559182525
 	github.com/dop251/goja v0.0.0-20200526165454-f1752421c432
 	github.com/gizak/termui/v3 v3.1.0
 	github.com/mattn/go-runewidth v0.0.9 // indirect
