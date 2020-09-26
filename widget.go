@@ -14,6 +14,9 @@ import (
 	"code.dopame.me/veonik/squirssi/colors"
 )
 
+// A ChatPane contains the messages for the screen.
+// This widget is based on the termui List widget.
+// ChatPanes support both termui formatting as well as IRC formatting.
 type ChatPane struct {
 	ui.Block
 	Rows        []string
@@ -21,6 +24,12 @@ type ChatPane struct {
 	TextStyle   ui.Style
 	SelectedRow int
 	LeftPadding int
+
+	ModeText  string
+	ModeStyle ui.Style
+
+	SubTitle      string
+	SubTitleStyle ui.Style
 }
 
 func NewChatPane() *ChatPane {
@@ -115,17 +124,32 @@ func WrapCellsPadded(cells []ui.Cell, width uint, leftPadding int) []ui.Cell {
 	wrappedCells := []ui.Cell{}
 	i := 0
 	twoLines := false
+	printPipe := false
 loop:
 	for x, _rune := range wrapped {
+		if _rune == '│' {
+			printPipe = true
+		}
 		if _rune == '\n' {
 			wrappedCells = append(wrappedCells, ui.Cell{_rune, ui.StyleClear})
 			for j := 0; j < leftPadding; j++ {
 				wrappedCells = append(wrappedCells, ui.Cell{' ', ui.StyleClear})
 			}
-			wrappedCells = append(wrappedCells, ui.Cell{'|', ui.NewStyle(colors.Grey62)}, ui.Cell{' ', ui.StyleClear})
-			v := []rune(wrapped)
+			if printPipe {
+				wrappedCells = append(wrappedCells, ui.Cell{ui.VERTICAL_LINE, ui.NewStyle(colors.Grey35)})
+			}
+			wrappedCells = append(wrappedCells, ui.Cell{' ', ui.StyleClear})
 			if !twoLines {
-				wrapped = wordwrap.WrapString(strings.ReplaceAll(string(v[x+1:]), "\n", ""), width-uint(leftPadding))
+				// the first time we wrap, we use the full available width, but the
+				// next lines are padded before they starts so that the text lines
+				// up on all lines with the nick and timestamp in a "gutter".
+				// so after wrapping the first time, recalculate the wrapping using the
+				// padded width. this only needs to happen once.
+				lPad := uint(leftPadding)
+				if printPipe {
+					lPad++
+				}
+				wrapped = wordwrap.WrapString(strings.ReplaceAll(wrapped[x+1:], "\n", " "), width-lPad)
 				twoLines = true
 				goto loop
 			}
@@ -139,6 +163,26 @@ loop:
 
 func (self *ChatPane) Draw(buf *ui.Buffer) {
 	self.Block.Draw(buf)
+
+	tcells := ui.ParseStyles(self.Title, self.TitleStyle)
+	if self.ModeText != "" {
+		tcells = append(tcells, ui.Cell{'(', self.TitleStyle})
+		tcells = append(tcells, ui.RunesToStyledCells([]rune(self.ModeText), self.ModeStyle)...)
+		tcells = append(tcells, ui.Cell{')', self.TitleStyle})
+	}
+	if self.SubTitle != "" {
+		tcells = append(tcells, ui.RunesToStyledCells([]rune{ui.HORIZONTAL_LINE, ui.HORIZONTAL_LINE}, ui.NewStyle(colors.Grey42))...)
+		tcells = append(tcells, ui.ParseStyles(self.SubTitle, self.SubTitleStyle)...)
+	}
+	pt := image.Pt(self.Min.X+2, self.Min.Y)
+	if self.Max.X > 0 && len(tcells) >= self.Max.X-5 {
+		tcells = append(tcells[:self.Max.X-5], ui.Cell{ui.ELLIPSES, self.SubTitleStyle})
+	}
+	for i := 0; i < len(tcells); i++ {
+		cc := tcells[i]
+		buf.SetCell(cc, pt)
+		pt.X++
+	}
 
 	point := self.Inner.Min
 
@@ -209,6 +253,11 @@ func (self *ChatPane) Draw(buf *ui.Buffer) {
 	}
 }
 
+// ActivityTabPane contains the tabs for available windows.
+// This widget compounds a termui TabPane widget with highlighting of tabs
+// in two additional ways: notice and activity. Notice is intended for when
+// a tab wants extra attention (ie. user was mentioned) vs activity where
+// there are just some new lines since last touched.
 type ActivityTabPane struct {
 	*widgets.TabPane
 

@@ -3,12 +3,12 @@ package squirssi
 
 import (
 	"fmt"
+	"strings"
 	"sync"
 
 	"code.dopame.me/veonik/squircy3/event"
 	"code.dopame.me/veonik/squircy3/irc"
 	ui "github.com/gizak/termui/v3"
-	"github.com/gizak/termui/v3/widgets"
 	tb "github.com/nsf/termbox-go"
 	"github.com/sirupsen/logrus"
 
@@ -35,7 +35,7 @@ func (f *logFormatter) Format(entry *logrus.Entry) ([]byte, error) {
 	case logrus.PanicLevel:
 		lvl = "[PANIC](fg:white,bg:red,mod:bold)"
 	}
-	return []byte(fmt.Sprintf("%s[|](fg:grey) [%s](fg:gray100)", lvl, entry.Message)), nil
+	return []byte(fmt.Sprintf("%s[│](fg:grey) [%s](fg:gray100)", lvl, entry.Message)), nil
 }
 
 type HistoryManager struct {
@@ -58,7 +58,6 @@ func (hm *HistoryManager) Append(win Window, input ModedText) {
 	hm.cursors[win] = len(hm.histories[win])
 	hm.append(win, input)
 	hm.cursors[win] = len(hm.histories[win])
-	logrus.Debugln("resetting cursor for", win.Title(), "now on", hm.cursors[win])
 }
 
 func (hm *HistoryManager) Insert(win Window, input ModedText) {
@@ -71,7 +70,6 @@ func (hm *HistoryManager) Insert(win Window, input ModedText) {
 }
 
 func (hm *HistoryManager) append(win Window, input ModedText) {
-	logrus.Debugln("inserting to history for", win.Title(), input, "at index", hm.cursors[win])
 	hm.histories[win] = append(append(append([]ModedText{}, hm.histories[win][:hm.cursors[win]]...), input), hm.histories[win][hm.cursors[win]:]...)
 }
 
@@ -79,7 +77,6 @@ func (hm *HistoryManager) current(win Window) ModedText {
 	if hm.cursors[win] < 0 {
 		hm.cursors[win] = 0
 	}
-	logrus.Debugln("currently have %d records for %s", len(hm.histories[win]), win.Title())
 	if hm.cursors[win] >= len(hm.histories[win]) {
 		hm.cursors[win] = len(hm.histories[win])
 		return ModedText{}
@@ -98,7 +95,6 @@ func (hm *HistoryManager) Previous(win Window) ModedText {
 	defer hm.mu.Unlock()
 	hm.cursors[win] -= 1
 	res := hm.current(win)
-	logrus.Debugln("previous history for", win.Title(), hm.cursors[win])
 	return res
 }
 
@@ -107,8 +103,72 @@ func (hm *HistoryManager) Next(win Window) ModedText {
 	defer hm.mu.Unlock()
 	hm.cursors[win] += 1
 	res := hm.current(win)
-	logrus.Debugln("next history for", win.Title(), hm.cursors[win])
 	return res
+}
+
+type Tabber struct {
+	active bool
+
+	input   string
+	match   string
+	matches []string
+	extra   string
+	pos     int
+
+	mu sync.Mutex
+}
+
+func NewTabber() *Tabber {
+	return &Tabber{}
+}
+
+func (t *Tabber) Active() bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.active
+}
+
+func (t *Tabber) Clear() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.active = false
+}
+
+func (t *Tabber) Reset(input string, channel *Channel) string {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	parts := strings.Split(input, " ")
+	t.match = parts[len(parts)-1]
+	t.extra = ""
+	if t.match == parts[0] {
+		t.extra = ": "
+	}
+	var m []string
+	for _, v := range channel.Users() {
+		if strings.HasPrefix(v, t.match) {
+			m = append(m, v+t.extra)
+		}
+	}
+	// put the match on the end of the stack so we can tab back to it.
+	m = append(m, t.match)
+	t.input = input
+	t.matches = m
+	t.pos = 0
+	t.active = true
+	return strings.Replace(input, t.match, t.matches[t.pos], 1)
+}
+
+func (t *Tabber) Tab() string {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if !t.active {
+		return ""
+	}
+	t.pos++
+	if t.pos >= len(t.matches) {
+		t.pos = 0
+	}
+	return strings.Replace(t.input, t.match, t.matches[t.pos], 1)
 }
 
 // A Server handles user interaction and displaying screen elements.
@@ -123,7 +183,9 @@ type Server struct {
 
 	inputTextBox *ModedTextInput
 	chatPane     *ChatPane
-	userListPane *widgets.Table
+	userListPane *UserList
+
+	tabber *Tabber
 
 	events *event.Dispatcher
 	irc    *irc.Manager
@@ -147,6 +209,8 @@ func NewServer(ev *event.Dispatcher, irc *irc.Manager) (*Server, error) {
 		events: ev,
 		irc:    irc,
 
+		tabber: NewTabber(),
+
 		done: make(chan struct{}),
 	}
 	srv.initUI()
@@ -166,22 +230,34 @@ func (srv *Server) OnInterrupt(fn Interrupter) *Server {
 	return srv
 }
 
+func (srv *Server) IRCDoAsync(fn func(conn *irc.Connection) error) {
+	go func() {
+		err := srv.irc.Do(fn)
+		if err != nil {
+			logrus.Errorln("irc command failed:", err)
+		}
+	}()
+}
+
 func (srv *Server) initUI() {
-	ui.StyleParserColorMap["gray"] = colors.Grey66
-	ui.StyleParserColorMap["grey"] = colors.Grey66
+	ui.StyleParserColorMap["gray"] = colors.Grey35
+	ui.StyleParserColorMap["grey"] = colors.Grey35
 	ui.StyleParserColorMap["gray82"] = colors.Grey82
 	ui.StyleParserColorMap["grey82"] = colors.Grey82
 	ui.StyleParserColorMap["gray100"] = colors.Grey100
 	ui.StyleParserColorMap["grey100"] = colors.Grey100
 
-	srv.userListPane = widgets.NewTable()
-	srv.userListPane.Rows = [][]string{}
-	srv.userListPane.Border = false
-	srv.userListPane.BorderStyle.Fg = ui.ColorBlack
-	srv.userListPane.RowSeparator = false
+	srv.userListPane = NewUserList()
+	srv.userListPane.Rows = []string{}
+	srv.userListPane.Border = true
+	srv.userListPane.BorderRight = false
+	srv.userListPane.BorderLeft = false
+	srv.userListPane.BorderTop = true
+	srv.userListPane.BorderBottom = true
+	srv.userListPane.BorderStyle.Fg = colors.Grey42
 	srv.userListPane.Title = "Users"
-	srv.userListPane.TextAlignment = ui.AlignRight
-	srv.userListPane.PaddingRight = 1
+	srv.userListPane.PaddingRight = 0
+	srv.userListPane.TitleStyle.Fg = colors.Grey100
 
 	srv.chatPane = NewChatPane()
 	srv.chatPane.Rows = []string{}
@@ -190,10 +266,13 @@ func (srv *Server) initUI() {
 	srv.chatPane.PaddingLeft = 1
 	srv.chatPane.PaddingRight = 1
 	srv.chatPane.WrapText = true
+	srv.chatPane.TitleStyle.Fg = colors.Grey100
+	srv.chatPane.SubTitleStyle.Fg = colors.White
+	srv.chatPane.ModeStyle.Fg = colors.Grey42
 
 	srv.statusBar = NewActivityTabPane()
 	srv.statusBar.ActiveTabStyle.Fg = colors.DodgerBlue1
-	srv.statusBar.NoticeStyle = ui.NewStyle(colors.DodgerBlue1, colors.White)
+	srv.statusBar.NoticeStyle = ui.NewStyle(colors.White, colors.DodgerBlue1)
 	srv.statusBar.ActivityStyle = ui.NewStyle(ui.ColorBlack, ui.ColorWhite)
 	srv.statusBar.Border = true
 	srv.statusBar.BorderTop = true
@@ -236,26 +315,31 @@ func (srv *Server) Update() {
 	srv.chatPane.SelectedRow = win.CurrentLine()
 	srv.chatPane.Rows = win.Lines()
 	srv.chatPane.Title = win.Title()
+
+	if ch, ok := win.(*Channel); ok {
+		srv.chatPane.SubTitle = ch.Topic()
+		srv.chatPane.ModeText = ch.Modes()
+	} else {
+		srv.chatPane.SubTitle = ""
+		srv.chatPane.ModeText = ""
+	}
 	srv.chatPane.LeftPadding = 12
 	if srv.statusBar.ActiveTabIndex != 0 {
 		srv.chatPane.LeftPadding = 17
 	}
 	srv.mainWindow.Items = nil
-	var rows [][]string
 	if v, ok := win.(WindowWithUserList); ok {
-		for _, nick := range v.Users() {
-			rows = append(rows, []string{nick})
-		}
+		srv.userListPane.Rows = v.UserList()
+		srv.userListPane.Title = fmt.Sprintf("%d users", len(srv.userListPane.Rows))
 		srv.mainWindow.Set(
-			ui.NewCol(.9, srv.chatPane),
-			ui.NewCol(.1, srv.userListPane),
+			ui.NewCol(.85, srv.chatPane),
+			ui.NewCol(.15, srv.userListPane),
 		)
 	} else {
 		srv.mainWindow.Set(
 			ui.NewCol(1, srv.chatPane),
 		)
 	}
-	srv.userListPane.Rows = rows
 }
 
 type screenElement int
@@ -302,7 +386,7 @@ func (srv *Server) resize(w, h int) {
 	// the actual size will be updated after rendering occurs
 	srv.pageHeight = h - 8
 	srv.pageWidth = int(float64(w)*.9) - 8
-	srv.statusBar.SetRect(0, srv.screenHeight-3, srv.screenWidth, srv.screenHeight)
+	srv.statusBar.SetRect(0, srv.screenHeight-2, srv.screenWidth, srv.screenHeight)
 	srv.inputTextBox.SetRect(0, srv.screenHeight-srv.statusBar.Dy()-1, srv.screenWidth, srv.screenHeight-srv.statusBar.Dy())
 	srv.mainWindow.SetRect(0, 0, srv.screenWidth, srv.screenHeight-srv.statusBar.Dy()-srv.inputTextBox.Dy())
 }

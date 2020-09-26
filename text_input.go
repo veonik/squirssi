@@ -1,6 +1,7 @@
 package squirssi
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/gizak/termui/v3/widgets"
@@ -13,6 +14,9 @@ const CursorFullBlock = "█"
 // transparently handled when updating those contents.
 type TextInput struct {
 	*widgets.Paragraph
+
+	input string
+	cursorPos int
 
 	// Character used to indicate the TextInput is focused and
 	// awaiting input.
@@ -33,25 +37,53 @@ func NewTextInput(cursor string) *TextInput {
 	return &TextInput{
 		Paragraph: widgets.NewParagraph(),
 		cursor:    cursor,
-		cursorLen: len(cursor),
+		cursorLen: len("[ ](mod:reverse)"),
 	}
+}
+
+func (i *TextInput) curs() string {
+	if len(i.input) == i.cursorPos {
+		return i.cursor
+	}
+	return fmt.Sprintf("[%s](mod:reverse)", i.input[i.cursorPos:i.cursorPos+1])
+}
+
+func (i *TextInput) update() {
+	t := i.input[:i.cursorPos] + i.curs()
+	if len(i.input) > i.cursorPos {
+		t = t + i.input[i.cursorPos+1:]
+	}
+	t = strings.Replace(t, string(0x03), "[C](mod:reverse)", -1)
+	t = strings.Replace(t, string(0x02), "[B](mod:reverse)", -1)
+	t = strings.Replace(t, string(0x1F), "[U](mod:reverse)", -1)
+	i.Text = i.Prefix() + t
+}
+
+func (i *TextInput) CursorPrev() {
+	i.Lock()
+	defer i.Unlock()
+	if i.cursorPos <= 0 {
+		return
+	}
+	i.cursorPos--
+	i.update()
+}
+
+func (i *TextInput) CursorNext() {
+	i.Lock()
+	defer i.Unlock()
+	if i.cursorPos >= len(i.input) {
+		return
+	}
+	i.cursorPos++
+	i.update()
 }
 
 // Peek returns the current input in the TextInput without clearing.
 func (i *TextInput) Peek() string {
-	if i.Len() < 1 {
-		return ""
-	}
 	i.Lock()
 	defer i.Unlock()
-	i.Text = strings.Replace(i.Text, "[C](mod:reverse)", string(0x03), -1)
-	i.Text = strings.Replace(i.Text, "[B](mod:reverse)", string(0x02), -1)
-	i.Text = strings.Replace(i.Text, "[U](mod:reverse)", string(0x1F), -1)
-	t := i.Text[i.prefixLen : len(i.Text)-i.cursorLen]
-	i.Text = strings.Replace(i.Text, string(0x03), "[C](mod:reverse)", -1)
-	i.Text = strings.Replace(i.Text, string(0x02), "[B](mod:reverse)", -1)
-	i.Text = strings.Replace(i.Text, string(0x1F), "[U](mod:reverse)", -1)
-	return t
+	return i.input
 }
 
 // Consume returns and clears the current input in the TextInput.
@@ -62,62 +94,53 @@ func (i *TextInput) Consume() string {
 	}
 	i.Lock()
 	defer i.Unlock()
-	t := i.Text[i.prefixLen : len(i.Text)-i.cursorLen]
-	t = strings.Replace(t, "[C](mod:reverse)", string(0x03), -1)
-	t = strings.Replace(t, "[B](mod:reverse)", string(0x02), -1)
-	t = strings.Replace(t, "[U](mod:reverse)", string(0x1F), -1)
-	return t
+	return i.input
 }
 
 // Len returns the length of the contents of the TextInput.
 func (i *TextInput) Len() int {
 	i.Lock()
 	defer i.Unlock()
-	i.Text = strings.Replace(i.Text, "[C](mod:reverse)", string(0x03), -1)
-	i.Text = strings.Replace(i.Text, "[B](mod:reverse)", string(0x02), -1)
-	i.Text = strings.Replace(i.Text, "[U](mod:reverse)", string(0x1F), -1)
-	l := len(i.Text) - i.cursorLen - i.prefixLen
-	i.Text = strings.Replace(i.Text, string(0x03), "[C](mod:reverse)", -1)
-	i.Text = strings.Replace(i.Text, string(0x02), "[B](mod:reverse)", -1)
-	i.Text = strings.Replace(i.Text, string(0x1F), "[U](mod:reverse)", -1)
-	return l
+	return len(i.input)
 }
 
 // Reset the contents of the TextInput.
 func (i *TextInput) Reset() {
 	i.Lock()
 	defer i.Unlock()
-	prefix := ""
-	if i.Prefix != nil {
-		prefix = i.Prefix()
-	}
-	i.prefixLen = len(prefix)
-	i.Text = prefix + i.cursor
+	i.cursorPos = 0
+	i.input = ""
+	i.update()
 }
 
 // Append adds the given string to the end of the editable content.
 func (i *TextInput) Append(in string) {
 	i.Lock()
 	defer i.Unlock()
-	in = strings.Replace(in, string(0x03), "[C](mod:reverse)", -1)
-	in = strings.Replace(in, string(0x02), "[B](mod:reverse)", -1)
-	in = strings.Replace(in, string(0x1F), "[U](mod:reverse)", -1)
-	i.Text = i.Text[0:len(i.Text)-i.cursorLen] + in + i.cursor
+	i.input = i.input[:i.cursorPos] + in + i.input[i.cursorPos:]
+	i.cursorPos += len(in)
+	i.update()
 }
 
 // Remove the last character from the end of the editable content.
 func (i *TextInput) Backspace() {
 	i.Lock()
 	defer i.Unlock()
-	i.Text = strings.Replace(i.Text, "[C](mod:reverse)", string(0x03), -1)
-	i.Text = strings.Replace(i.Text, "[B](mod:reverse)", string(0x02), -1)
-	i.Text = strings.Replace(i.Text, "[U](mod:reverse)", string(0x1F), -1)
-	if len(i.Text) > i.prefixLen+i.cursorLen {
-		i.Text = (i.Text)[0:len(i.Text)-i.cursorLen-1] + i.cursor
+	if i.cursorPos > 0 {
+		i.input = i.input[:i.cursorPos-1] + i.input[i.cursorPos:]
+		i.cursorPos--
+		i.update()
 	}
-	i.Text = strings.Replace(i.Text, string(0x03), "[C](mod:reverse)", -1)
-	i.Text = strings.Replace(i.Text, string(0x02), "[B](mod:reverse)", -1)
-	i.Text = strings.Replace(i.Text, string(0x1F), "[U](mod:reverse)", -1)
+}
+
+// Remove the last character from the end of the editable content.
+func (i *TextInput) DeleteNext() {
+	i.Lock()
+	defer i.Unlock()
+	if i.cursorPos < len(i.input) {
+		i.input = i.input[:i.cursorPos] + i.input[i.cursorPos+1:]
+		i.update()
+	}
 }
 
 // InputMode defines different kinds of input handled by a ModedTextInput.
@@ -196,4 +219,13 @@ func (i *ModedTextInput) Consume() ModedText {
 		Kind: mode,
 		Text: txt,
 	}
+}
+func (i *ModedTextInput) Backspace() {
+	if i.Len() == 0 {
+		if i.Mode() != ModeMessage {
+			i.ToggleMode()
+		}
+		return
+	}
+	i.TextInput.Backspace()
 }

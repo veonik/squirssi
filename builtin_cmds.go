@@ -17,11 +17,47 @@ var builtIns = map[string]Command{
 	"wc":    closeWindow,
 	"join":  joinChannel,
 	"part":  partChannel,
+	"mode":  modeChange,
+	"topic": topicChange,
 	"whois": whoisNick,
 	"names": namesChannel,
 	"nick":  changeNick,
 	"me":    actionMessage,
 	"msg":   msgTarget,
+
+	"connect":    connectServer,
+	"disconnect": disconnectServer,
+
+	"echo": func(srv *Server, args []string) {
+		win := srv.WindowManager.Active()
+		_, _ = win.WriteString(strings.Join(args[1:], " "))
+	},
+	"raw": func(srv *Server, args []string) {
+		srv.IRCDoAsync(func(conn *irc.Connection) error {
+			conn.SendRaw(strings.Join(args[1:], " "))
+			win := srv.WindowManager.Active()
+			if win != nil {
+				_, _ = win.WriteString("-> " + strings.Join(args[1:], " "))
+			}
+			return nil
+		})
+	},
+}
+
+func connectServer(srv *Server, _ []string) {
+	go func() {
+		if err := srv.irc.Connect(); err != nil {
+			logrus.Errorln("unable to connect:", err)
+		}
+	}()
+}
+
+func disconnectServer(srv *Server, _ []string) {
+	go func() {
+		if err := srv.irc.Disconnect(); err != nil {
+			logrus.Errorln("unable to disconnect:", err)
+		}
+	}()
 }
 
 func exitProgram(srv *Server, _ []string) {
@@ -30,6 +66,51 @@ func exitProgram(srv *Server, _ []string) {
 	if srv.interrupt != nil {
 		srv.interrupt()
 	}
+}
+
+func topicChange(srv *Server, args []string) {
+	if len(args) < 2 || !strings.HasPrefix("#", args[1]) {
+		win := srv.WindowManager.Active()
+		if win == nil || !strings.HasPrefix(win.Title(), "#") {
+			logrus.Warnln("topicChange: couldnt determine current channel")
+			return
+		}
+		args = append(append([]string{}, args[0], win.Title()), args[1:]...)
+	}
+	target := args[1]
+	if len(args) == 2 {
+		srv.IRCDoAsync(func(conn *irc.Connection) error {
+			conn.SendRawf("TOPIC %s", target)
+			return nil
+		})
+		return
+	}
+	topic := strings.Join(args[2:], " ")
+	srv.IRCDoAsync(func(conn *irc.Connection) error {
+		conn.SendRawf("TOPIC %s :%s", target, topic)
+		return nil
+	})
+}
+
+func modeChange(srv *Server, args []string) {
+	if len(args) < 2 || strings.HasPrefix(args[1], "+") || strings.HasPrefix(args[1], "-") {
+		win := srv.WindowManager.Active()
+		t := ""
+		if win == nil || win.Title() == "status" {
+			srv.mu.RLock()
+			t = srv.currentNick
+			srv.mu.RUnlock()
+		} else {
+			t = win.Title()
+		}
+		args = append(append([]string{}, args[0], t), args[1:]...)
+	}
+	target := args[1]
+	modes := args[2:]
+	srv.IRCDoAsync(func(conn *irc.Connection) error {
+		conn.Mode(target, modes...)
+		return nil
+	})
 }
 
 func selectWindow(srv *Server, args []string) {
@@ -54,17 +135,20 @@ func closeWindow(srv *Server, args []string) {
 		var err error
 		ch, err = strconv.Atoi(args[1])
 		if err != nil {
-			logrus.Warnln("selectWindow: expected first argument to be an integer")
+			logrus.Warnln("closeWindow: expected first argument to be an integer")
 			return
 		}
 	}
 	win := srv.WindowManager.Index(ch)
-	if strings.HasPrefix(win.Title(), "#") {
-		if err := srv.irc.Do(func(conn *irc.Connection) error {
-			conn.Part(win.Title())
-			return nil
-		}); err != nil {
-			logrus.Warnln("closeWindow: failed to part channel before closing window")
+	if ch, ok := win.(*Channel); ok {
+		srv.mu.RLock()
+		myNick := srv.currentNick
+		srv.mu.RUnlock()
+		if ch.HasUser(myNick) {
+			srv.IRCDoAsync(func(conn *irc.Connection) error {
+				conn.Part(win.Title())
+				return nil
+			})
 		}
 	}
 	srv.WindowManager.CloseIndex(ch)
@@ -75,12 +159,10 @@ func joinChannel(srv *Server, args []string) {
 		logrus.Warnln("joinChannel: expected one argument")
 		return
 	}
-	if err := srv.irc.Do(func(conn *irc.Connection) error {
+	srv.IRCDoAsync(func(conn *irc.Connection) error {
 		conn.Join(args[1])
 		return nil
-	}); err != nil {
-		logrus.Warnln("joinChannel: error joining channel:", err)
-	}
+	})
 }
 
 func partChannel(srv *Server, args []string) {
@@ -88,12 +170,10 @@ func partChannel(srv *Server, args []string) {
 		logrus.Warnln("partChannel: expected one argument")
 		return
 	}
-	if err := srv.irc.Do(func(conn *irc.Connection) error {
+	srv.IRCDoAsync(func(conn *irc.Connection) error {
 		conn.Part(args[1])
 		return nil
-	}); err != nil {
-		logrus.Warnln("partChannel: error joining channel:", err)
-	}
+	})
 }
 
 func whoisNick(srv *Server, args []string) {
@@ -101,12 +181,10 @@ func whoisNick(srv *Server, args []string) {
 		logrus.Warnln("whoisNick: expected one argument")
 		return
 	}
-	if err := srv.irc.Do(func(conn *irc.Connection) error {
+	srv.IRCDoAsync(func(conn *irc.Connection) error {
 		conn.SendRawf("WHOIS %s", args[1])
 		return nil
-	}); err != nil {
-		logrus.Warnln("whoisNick: error getting whois info:", err)
-	}
+	})
 }
 
 func namesChannel(srv *Server, args []string) {
@@ -136,12 +214,10 @@ func namesChannel(srv *Server, args []string) {
 	})
 	srv.events.Bind("irc.353", irc353Handler)
 	srv.events.Bind("irc.366", irc366Handler)
-	if err := srv.irc.Do(func(conn *irc.Connection) error {
+	srv.IRCDoAsync(func(conn *irc.Connection) error {
 		conn.SendRawf("NAMES :%s", channel)
 		return nil
-	}); err != nil {
-		logrus.Warnln("namesChannel: error getting names:", err)
-	}
+	})
 }
 
 func changeNick(srv *Server, args []string) {
@@ -149,12 +225,10 @@ func changeNick(srv *Server, args []string) {
 		logrus.Warnln("changeNick: expected one argument")
 		return
 	}
-	if err := srv.irc.Do(func(conn *irc.Connection) error {
+	srv.IRCDoAsync(func(conn *irc.Connection) error {
 		conn.Nick(args[1])
 		return nil
-	}); err != nil {
-		logrus.Warnln("changeNick: error changing nick:", err)
-	}
+	})
 }
 
 func actionMessage(srv *Server, args []string) {
@@ -163,12 +237,10 @@ func actionMessage(srv *Server, args []string) {
 	if window == nil || window.Title() == "status" {
 		return
 	}
-	if err := srv.irc.Do(func(conn *irc.Connection) error {
+	srv.IRCDoAsync(func(conn *irc.Connection) error {
 		conn.Action(window.Title(), message)
 		return nil
-	}); err != nil {
-		logrus.Warnln("actionMessage: error sending message:", err)
-	}
+	})
 	srv.mu.Lock()
 	myNick := MyNick(srv.currentNick)
 	srv.mu.Unlock()
@@ -185,12 +257,10 @@ func msgTarget(srv *Server, args []string) {
 		return
 	}
 	message := strings.Join(args[2:], " ")
-	if err := srv.irc.Do(func(conn *irc.Connection) error {
+	srv.IRCDoAsync(func(conn *irc.Connection) error {
 		conn.Privmsg(target, message)
 		return nil
-	}); err != nil {
-		logrus.Warnln("msgTarget: error sending message:", err)
-	}
+	})
 	window := srv.WindowManager.Named(target)
 	if !strings.HasPrefix(target, "#") {
 		// direct message!

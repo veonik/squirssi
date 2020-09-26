@@ -1,7 +1,6 @@
 package squirssi
 
 import (
-	"fmt"
 	"strings"
 	"sync"
 	"time"
@@ -9,6 +8,7 @@ import (
 	"code.dopame.me/veonik/squircy3/event"
 	"code.dopame.me/veonik/squircy3/irc"
 	"github.com/sirupsen/logrus"
+	irc2 "github.com/thoj/go-ircevent"
 )
 
 func bindIRCHandlers(srv *Server, events *event.Dispatcher) {
@@ -26,6 +26,11 @@ func bindIRCHandlers(srv *Server, events *event.Dispatcher) {
 	events.Bind("irc.353", HandleIRCEvent(srv, onIRC353))
 	events.Bind("irc.366", HandleIRCEvent(srv, onIRC366))
 	events.Bind("irc.QUIT", HandleIRCEvent(srv, onIRCQuit))
+	events.Bind("irc.MODE", HandleIRCEvent(srv, onIRCMode))
+	events.Bind("irc.324", HandleIRCEvent(srv, onIRC324))
+	events.Bind("irc.332", HandleIRCEvent(srv, onIRC332))
+	events.Bind("irc.331", HandleIRCEvent(srv, onIRC331))
+	events.Bind("irc.TOPIC", HandleIRCEvent(srv, onIRCTopic))
 	errorCodes := []string{"irc.401", "irc.403", "irc.404", "irc.405", "irc.406", "irc.407", "irc.408", "irc.421"}
 	for _, code := range errorCodes {
 		events.Bind(code, HandleIRCEvent(srv, onIRCError))
@@ -34,6 +39,7 @@ func bindIRCHandlers(srv *Server, events *event.Dispatcher) {
 	for _, code := range whoisCodes {
 		events.Bind(code, HandleIRCEvent(srv, onIRCWhois))
 	}
+	events.Bind("debug.IRC", event.HandlerFunc(handleIRCDebugEvent))
 }
 
 type IRCEvent struct {
@@ -46,6 +52,52 @@ type IRCEvent struct {
 	Target  string
 	Message string
 	Args    []string
+}
+
+func normalizeDebugEvent(ev *event.Event) *IRCEvent {
+	if ev.Data == nil {
+		return nil
+	}
+	v, ok := ev.Data["source"].(*irc2.Event)
+	if !ok {
+		return nil
+	}
+	return &IRCEvent{
+		Code:    v.Code,
+		Raw:     v.Raw,
+		Nick:    v.Nick,
+		Host:    v.Host,
+		Source:  v.Source,
+		User:    v.User,
+		Target:  v.Arguments[0],
+		Message: v.Message(),
+		Args:    v.Arguments,
+	}
+}
+
+var debugIgnore = map[string]struct{}{
+	"PRIVMSG":     {},
+	"CTCP_ACTION": {},
+	"TOPIC":       {},
+	"MODE":        {},
+	"KICK":        {},
+	"NICK":        {},
+	"QUIT":        {},
+	"JOIN":        {},
+	"PART":        {},
+	"366":         {},
+	"353":         {},
+	"324":         {},
+	"331":         {},
+	"332":         {},
+}
+
+func handleIRCDebugEvent(ev *event.Event) {
+	nev := normalizeDebugEvent(ev)
+	if _, ok := debugIgnore[nev.Code]; ok {
+		return
+	}
+	logrus.Debugf("irc.%s - %s => %s", nev.Code, nev.Target, strings.Join(nev.Args[1:], " "))
 }
 
 func NormalizeIRCEvent(ev *event.Event) *IRCEvent {
@@ -74,16 +126,63 @@ func HandleIRCEvent(srv *Server, h IRCEventHandler) event.Handler {
 	})
 }
 
+func onIRC324(srv *Server, ev *IRCEvent) {
+	modes := strings.Join(ev.Args[2:], " ")
+	win := srv.WindowManager.Named(ev.Args[1])
+	blankBefore := false
+	if ch, ok := win.(*Channel); ok {
+		ch.mu.Lock()
+		if ch.modes == "" {
+			blankBefore = true
+		}
+		ch.modes = modes
+		ch.mu.Unlock()
+	}
+	if win == nil {
+		logrus.Warnln("received MODES for something without a window:", ev.Args[1], ev.Args[2:])
+		return
+	}
+	// dont write the message the first time we get modes since that is done automatically on join
+	if !blankBefore {
+		WriteModes(win, modes)
+	}
+}
+
+func onIRC331(srv *Server, ev *IRCEvent) {
+	target := ev.Args[1]
+	win := srv.WindowManager.Named(target)
+	if ch, ok := win.(*Channel); ok {
+		ch.mu.Lock()
+		ch.topic = ""
+		ch.mu.Unlock()
+		Write331(win)
+	}
+}
+
+func onIRC332(srv *Server, ev *IRCEvent) {
+	target := ev.Args[1]
+	win := srv.WindowManager.Named(target)
+	if ch, ok := win.(*Channel); ok {
+		topic := strings.Join(ev.Args[2:], " ")
+		ch.mu.Lock()
+		ch.topic = topic
+		ch.mu.Unlock()
+		Write332(win, topic)
+	}
+}
+
 func onIRCConnect(srv *Server, _ *IRCEvent) {
-	err := srv.irc.Do(func(conn *irc.Connection) error {
+	srv.IRCDoAsync(func(conn *irc.Connection) error {
 		srv.mu.Lock()
 		defer srv.mu.Unlock()
 		srv.currentNick = conn.GetNick()
+		conn.AddCallback("*", func(ev *irc2.Event) {
+			srv.events.Emit("debug.IRC", map[string]interface{}{
+				"source": ev,
+			})
+		})
 		return nil
 	})
-	if err != nil {
-		logrus.Warnln("failed to set current nick:", err)
-	}
 }
 
 func onIRCDisconnect(srv *Server, _ *IRCEvent) {
@@ -93,12 +192,46 @@ func onIRCDisconnect(srv *Server, _ *IRCEvent) {
 	srv.currentNick = ""
 }
 
+func onIRCMode(srv *Server, ev *IRCEvent) {
+	target := ev.Target
+	nick := SomeNick(ev.Nick)
+	mode := strings.Join(ev.Args[1:], " ")
+	srv.mu.RLock()
+	if ev.Nick == srv.currentNick {
+		nick.me = true
+	}
+	srv.mu.RUnlock()
+	win := srv.WindowManager.Named(target)
+	if win != nil {
+		WriteMode(win, nick, mode)
+	} else {
+		WriteMode(srv.WindowManager.Index(0), nick, mode)
+	}
+}
+
+func onIRCTopic(srv *Server, ev *IRCEvent) {
+	target := ev.Target
+	nick := SomeNick(ev.Nick)
+	topic := strings.Join(ev.Args[1:], " ")
+	srv.mu.RLock()
+	if ev.Nick == srv.currentNick {
+		nick.me = true
+	}
+	srv.mu.RUnlock()
+	win := srv.WindowManager.Named(target)
+	if win != nil {
+		WriteTopic(win, nick, topic)
+	} else {
+		logrus.Warnln("received topic with no channel window:", target, nick, topic)
+	}
+}
+
 func onIRCNick(srv *Server, ev *IRCEvent) {
 	nick := SomeNick(ev.Nick)
 	newNick := ev.Message
 	srv.mu.Lock()
 	if ev.Nick == srv.currentNick {
-		nick = MyNick(srv.currentNick)
+		nick.me = true
 		srv.currentNick = newNick
 	}
 	srv.mu.Unlock()
@@ -110,7 +243,7 @@ func onIRCKick(srv *Server, ev *IRCEvent) {
 	kicked := SomeNick(ev.Args[1])
 	srv.mu.RLock()
 	if kicked.string == srv.currentNick {
-		kicked = MyNick(srv.currentNick)
+		kicked.me = true
 	}
 	srv.mu.RUnlock()
 	if kicked.me {
@@ -129,8 +262,8 @@ func onIRCKick(srv *Server, ev *IRCEvent) {
 		logrus.Errorln("received kick with no Window:", channel, ev.Message, ev.Nick)
 		return
 	}
-	if kicked.me {
-		win.Notice()
+	if ch, ok := win.(*Channel); ok {
+		ch.DeleteUser(kicked.string)
 	}
 	WriteKick(win, kicked, ev.Message)
 }
@@ -169,28 +302,27 @@ func onIRC366(srv *Server, ev *IRCEvent) {
 	}
 	namesCache.Lock()
 	defer namesCache.Unlock()
-	ch.mu.Lock()
-	ch.users = namesCache.values[chanName]
-	ch.mu.Unlock()
+	ch.SetUsers(namesCache.values[chanName])
 	delete(namesCache.values, chanName)
+	srv.WindowManager.events.Emit("ui.DIRTY", nil)
 }
 
-func onIRCError(_ *Server, ev *IRCEvent) {
+func onIRCError(srv *Server, ev *IRCEvent) {
 	var kind string
 	if len(ev.Args) > 1 {
 		kind = ev.Args[1]
 	} else {
 		kind = ev.Target
 	}
-	logrus.Errorf("%s: %s", kind, ev.Message)
+	win := srv.WindowManager.Named(kind)
+	WriteError(win, kind, ev.Message)
 }
 
 func onIRCWhois(srv *Server, ev *IRCEvent) {
-	kind := ev.Args[1]
+	nick := ev.Args[1]
 	data := ev.Args[2:]
-	if _, err := srv.WindowManager.status.Write([]byte(fmt.Sprintf("WHOIS %s => %s", kind, strings.Join(data, " ")))); err != nil {
-		logrus.Warnln("failed to write whois result to status:", err)
-	}
+	win := srv.WindowManager.Named(nick)
+	WriteWhois(win, nick, data)
 }
 
 func onIRCNames(srv *Server, ev *IRCEvent) {
@@ -205,30 +337,39 @@ func onIRCNames(srv *Server, ev *IRCEvent) {
 	}
 	target := ev.Target
 	if strings.HasPrefix(target, "#") {
-		if err := srv.irc.Do(func(conn *irc.Connection) error {
+		srv.IRCDoAsync(func(conn *irc.Connection) error {
 			conn.SendRawf("NAMES :%s", target)
 			return nil
-		}); err != nil {
-			logrus.Warnln("failed to run NAMES on user change:", err)
-		}
+		})
 	}
 }
 
 func onIRCJoin(srv *Server, ev *IRCEvent) {
 	target := ev.Target
 	win := srv.WindowManager.Named(target)
+	nick := SomeNick(ev.Nick)
 	srv.mu.RLock()
-	myNick := srv.currentNick
+	if ev.Nick == srv.currentNick {
+		nick.me = true
+	}
 	srv.mu.RUnlock()
 	if win == nil {
 		ch := &Channel{
 			bufferedWindow: newBufferedWindow(target, srv.events),
-			users:          []string{},
+			users:          []User{},
+			usersIndexed:   make(map[string]int),
 		}
 		srv.WindowManager.Append(ch)
 		win = ch
+		if nick.me {
+			srv.WindowManager.SelectIndex(srv.WindowManager.Len() - 1)
+			modeChange(srv, []string{"mode"})
+		}
 	}
-	WriteJoin(win, Nick{ev.Nick, ev.Nick == myNick})
+	if ch, ok := win.(*Channel); ok {
+		ch.AddUser(SomeUser(nick.string))
+	}
+	WriteJoin(win, nick)
 }
 
 func onIRCPart(srv *Server, ev *IRCEvent) {
@@ -237,7 +378,7 @@ func onIRCPart(srv *Server, ev *IRCEvent) {
 	win := srv.WindowManager.Named(target)
 	srv.mu.RLock()
 	if ev.Nick == srv.currentNick {
-		nick = MyNick(srv.currentNick)
+		nick.me = true
 	}
 	srv.mu.RUnlock()
 	if win == nil {
@@ -246,6 +387,9 @@ func onIRCPart(srv *Server, ev *IRCEvent) {
 			logrus.Errorln("received message with no Window:", target, ev.Message, nick)
 		}
 		return
+	}
+	if ch, ok := win.(*Channel); ok {
+		ch.DeleteUser(nick.string)
 	}
 	WritePart(win, nick, ev.Message)
 }

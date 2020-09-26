@@ -30,6 +30,9 @@ func onUIDirty(srv *Server, _ *event.Event) {
 // ui.KEYPRESS event is emitted. This is done to avoid extra lag between
 // pressing a key and seeing the UI react.
 func onUIKeyPress(srv *Server, key string) {
+	if key != "<Tab>" {
+		srv.tabber.Clear()
+	}
 	switch key {
 	case "<C-c>":
 		srv.inputTextBox.Append(string(0x03))
@@ -60,18 +63,13 @@ func onUIKeyPress(srv *Server, key string) {
 	case "<Backspace>":
 		srv.inputTextBox.Backspace()
 		srv.RenderOnly(InputTextBox)
+	case "<Delete>":
+		srv.inputTextBox.DeleteNext()
+		srv.RenderOnly(InputTextBox)
 	case "<C-5>":
-		srv.mu.Lock()
-		srv.statusBar.FocusRight()
-		srv.mu.Unlock()
-		srv.Update()
-		srv.Render()
+		srv.WindowManager.SelectNext()
 	case "<Escape>":
-		srv.mu.Lock()
-		srv.statusBar.FocusLeft()
-		srv.mu.Unlock()
-		srv.Update()
-		srv.Render()
+		srv.WindowManager.SelectPrev()
 	case "<Up>":
 		win := srv.WindowManager.Active()
 		if win == nil {
@@ -96,23 +94,22 @@ func onUIKeyPress(srv *Server, key string) {
 		msg := srv.HistoryManager.Next(win)
 		srv.inputTextBox.Set(msg)
 		srv.RenderOnly(InputTextBox)
+	case "<Left>":
+		srv.inputTextBox.CursorPrev()
+		srv.RenderOnly(InputTextBox)
+	case "<Right>":
+		srv.inputTextBox.CursorNext()
+		srv.RenderOnly(InputTextBox)
 	case "<Tab>":
 		win := srv.WindowManager.Active()
-		if ch, ok := win.(WindowWithUserList); ok {
-			msg := srv.inputTextBox.Peek()
-			parts := strings.Split(msg, " ")
-			match := parts[len(parts)-1]
-			extra := ""
-			if match == parts[0] {
-				extra = ": "
+		if ch, ok := win.(*Channel); ok {
+			var tabbed string
+			if srv.tabber.Active() {
+				tabbed = srv.tabber.Tab()
+			} else {
+				tabbed = srv.tabber.Reset(srv.inputTextBox.Peek(), ch)
 			}
-			for _, u := range ch.Users() {
-				nick := strings.ReplaceAll(strings.ReplaceAll(u, "@", ""), "+", "")
-				if strings.HasPrefix(nick, match) {
-					srv.inputTextBox.Append(strings.Replace(nick, match, "", 1) + extra)
-					break
-				}
-			}
+			srv.inputTextBox.Set(ModedText{Kind: srv.inputTextBox.Mode(), Text: tabbed})
 		}
 		srv.RenderOnly(InputTextBox)
 	case "<Enter>":
