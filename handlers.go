@@ -6,6 +6,8 @@ import (
 
 	"code.dopame.me/veonik/squircy3/event"
 	"github.com/sirupsen/logrus"
+
+	"code.dopame.me/veonik/squirssi/widget"
 )
 
 func bindUIHandlers(srv *Server, events *event.Dispatcher) {
@@ -109,7 +111,7 @@ func onUIKeyPress(srv *Server, key string) {
 			} else {
 				tabbed = srv.tabber.Reset(srv.inputTextBox.Peek(), ch)
 			}
-			srv.inputTextBox.Set(ModedText{Kind: srv.inputTextBox.Mode(), Text: tabbed})
+			srv.inputTextBox.Set(widget.ModedText{Kind: srv.inputTextBox.Mode(), Text: tabbed})
 		}
 		srv.RenderOnly(InputTextBox)
 	case "<Enter>":
@@ -126,7 +128,7 @@ func onUIKeyPress(srv *Server, key string) {
 		}
 		defer srv.HistoryManager.Append(channel, in)
 		switch in.Kind {
-		case ModeCommand:
+		case widget.ModeCommand:
 			args := strings.Split(in.Text, " ")
 			c := args[0]
 			if cmd, ok := builtIns[c]; ok {
@@ -134,7 +136,7 @@ func onUIKeyPress(srv *Server, key string) {
 			} else {
 				logrus.Warnln("no command named:", c)
 			}
-		case ModeMessage:
+		case widget.ModeMessage:
 			srv.RenderOnly(InputTextBox)
 			if active == 0 {
 				// status window doesn't accept messages

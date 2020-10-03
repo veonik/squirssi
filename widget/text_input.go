@@ -1,62 +1,73 @@
-package squirssi
+package widget
 
 import (
-	"fmt"
+	"image"
 	"strings"
 
-	"github.com/gizak/termui/v3/widgets"
+	ui "github.com/gizak/termui/v3"
+	tb "github.com/nsf/termbox-go"
 )
 
-const CursorFullBlock = "█"
-
-// A TextInput is a Paragraph widget with editable contents.
-// A cursor block character is printed at the end of the contents and
-// transparently handled when updating those contents.
+// A TextInput is a widget with editable contents.
+// This widget is based on the termui Paragraph widget.
 type TextInput struct {
-	*widgets.Paragraph
+	ui.Block
+	Text      string
+	TextStyle ui.Style
+	WrapText  bool
 
+	// Actual input stored in the TextInput.
 	input string
+	// Current cursor position within input.
 	cursorPos int
 
-	// Character used to indicate the TextInput is focused and
-	// awaiting input.
-	cursor string
-	// Length of the cursor character at the end of the input.
-	cursorLen int
-
-	// Length of the current prefix in the text.
-	// Calculated only when resetting.
-	prefixLen int
+	// Current prefix rendered before the actual input.
+	// Set only when resetting.
+	prefix string
 
 	// If specified, called during Reset and the result is used
 	// as the initial text in the text box.
 	Prefix func() string
 }
 
-func NewTextInput(cursor string) *TextInput {
+func NewTextInput() *TextInput {
 	return &TextInput{
-		Paragraph: widgets.NewParagraph(),
-		cursor:    cursor,
-		cursorLen: len("[ ](mod:reverse)"),
+		Block:     *ui.NewBlock(),
+		TextStyle: ui.Theme.Paragraph.Text,
+		WrapText:  true,
 	}
 }
 
-func (i *TextInput) curs() string {
-	if len(i.input) == i.cursorPos {
-		return i.cursor
+func (i *TextInput) Draw(buf *ui.Buffer) {
+	i.Block.Draw(buf)
+
+	cells := ui.ParseStyles(i.Text, i.TextStyle)
+	cells = ParseIRCStyles(cells)
+	if i.WrapText {
+		cells = ui.WrapCells(cells, uint(i.Inner.Dx()))
 	}
-	return fmt.Sprintf("[%s](mod:reverse)", i.input[i.cursorPos:i.cursorPos+1])
+
+	rows := ui.SplitCells(cells, '\n')
+
+	for y, row := range rows {
+		if y+i.Inner.Min.Y >= i.Inner.Max.Y {
+			break
+		}
+		row = ui.TrimCells(row, i.Inner.Dx())
+		for _, cx := range ui.BuildCellWithXArray(row) {
+			x, cell := cx.X, cx.Cell
+			buf.SetCell(cell, image.Pt(x, y).Add(i.Inner.Min))
+		}
+	}
+	tb.SetCursor(i.Inner.Min.X+len(i.prefix)+i.cursorPos, i.Inner.Min.Y)
 }
 
 func (i *TextInput) update() {
-	t := i.input[:i.cursorPos] + i.curs()
-	if len(i.input) > i.cursorPos {
-		t = t + i.input[i.cursorPos+1:]
-	}
-	t = strings.Replace(t, string(0x03), "[C](mod:reverse)", -1)
-	t = strings.Replace(t, string(0x02), "[B](mod:reverse)", -1)
-	t = strings.Replace(t, string(0x1F), "[U](mod:reverse)", -1)
-	i.Text = i.Prefix() + t
+	t := i.input
+	t = strings.Replace(t, string(0x1F), string(0x016)+"U"+string(0x016), -1)
+	t = strings.Replace(t, string(0x03), string(0x016)+"C"+string(0x016), -1)
+	t = strings.Replace(t, string(0x02), string(0x016)+"B"+string(0x016), -1)
+	i.Text = i.prefix + t
 }
 
 func (i *TextInput) CursorPrev() {
@@ -110,6 +121,7 @@ func (i *TextInput) Reset() {
 	defer i.Unlock()
 	i.cursorPos = 0
 	i.input = ""
+	i.prefix = i.Prefix()
 	i.update()
 }
 
@@ -161,9 +173,9 @@ type ModedTextInput struct {
 }
 
 // NewModedTextInput creates a new ModedTextInput.
-func NewModedTextInput(cursor string) *ModedTextInput {
+func NewModedTextInput() *ModedTextInput {
 	i := &ModedTextInput{
-		TextInput: *NewTextInput(cursor),
+		TextInput: *NewTextInput(),
 		mode:      ModeMessage,
 	}
 	i.Prefix = func() string {
@@ -220,6 +232,7 @@ func (i *ModedTextInput) Consume() ModedText {
 		Text: txt,
 	}
 }
+
 func (i *ModedTextInput) Backspace() {
 	if i.Len() == 0 {
 		if i.Mode() != ModeMessage {

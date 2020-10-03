@@ -1,4 +1,4 @@
-package squirssi
+package widget
 
 import (
 	"image"
@@ -21,26 +21,26 @@ func NewUserList() *UserList {
 	}
 }
 
-func (self *UserList) Draw(buf *ui.Buffer) {
-	self.Block.Draw(buf)
+func (ul *UserList) Draw(buf *ui.Buffer) {
+	ul.Block.Draw(buf)
 
-	columnWidth := self.Inner.Dx()
+	columnWidth := ul.Inner.Dx()
 
-	yCoordinate := self.Inner.Min.Y
+	yCoordinate := ul.Inner.Min.Y
 
 	// draw rows
-	for i := 0; i < len(self.Rows) && yCoordinate < self.Inner.Max.Y; i++ {
-		row := self.Rows[i]
-		colXCoordinate := self.Inner.Min.X
+	for i := 0; i < len(ul.Rows) && yCoordinate < ul.Inner.Max.Y; i++ {
+		row := ul.Rows[i]
+		colXCoordinate := ul.Inner.Min.X
 
-		rowStyle := self.TextStyle
+		rowStyle := ul.TextStyle
 
 		col := ui.ParseStyles(row, rowStyle)
 		// draw row cell
 		if len(col) > columnWidth {
 			for _, cx := range ui.BuildCellWithXArray(col) {
 				k, cell := cx.X, cx.Cell
-				if k == columnWidth || colXCoordinate+k == self.Inner.Max.X {
+				if k == columnWidth || colXCoordinate+k == ul.Inner.Max.X {
 					cell.Rune = ui.ELLIPSES
 					buf.SetCell(cell, image.Pt(colXCoordinate+k-1, yCoordinate))
 					break
@@ -49,7 +49,7 @@ func (self *UserList) Draw(buf *ui.Buffer) {
 				}
 			}
 		} else {
-			stringXCoordinate := ui.MinInt(colXCoordinate+columnWidth, self.Inner.Max.X) - len(col)
+			stringXCoordinate := ui.MinInt(colXCoordinate+columnWidth, ul.Inner.Max.X) - len(col)
 			for _, cx := range ui.BuildCellWithXArray(col) {
 				k, cell := cx.X, cx.Cell
 				buf.SetCell(cell, image.Pt(stringXCoordinate+k, yCoordinate))

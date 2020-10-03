@@ -13,6 +13,7 @@ import (
 	"github.com/sirupsen/logrus"
 
 	"code.dopame.me/veonik/squirssi/colors"
+	"code.dopame.me/veonik/squirssi/widget"
 )
 
 type logFormatter struct{}
@@ -21,11 +22,11 @@ func (f *logFormatter) Format(entry *logrus.Entry) ([]byte, error) {
 	lvl := ""
 	switch entry.Level {
 	case logrus.InfoLevel:
-		lvl = "[INFO ](fg:blue)"
+		lvl = "[ INFO](fg:blue)"
 	case logrus.DebugLevel:
 		lvl = "[DEBUG](fg:white,bg:blue)"
 	case logrus.WarnLevel:
-		lvl = "[WARN ](fg:yellow)"
+		lvl = "[ WARN](fg:yellow)"
 	case logrus.ErrorLevel:
 		lvl = "[ERROR](fg:red)"
 	case logrus.FatalLevel:
@@ -39,7 +40,7 @@ func (f *logFormatter) Format(entry *logrus.Entry) ([]byte, error) {
 }
 
 type HistoryManager struct {
-	histories map[Window][]ModedText
+	histories map[Window][]widget.ModedText
 	cursors   map[Window]int
 
 	mu sync.Mutex
@@ -47,12 +48,12 @@ type HistoryManager struct {
 
 func NewHistoryManager() *HistoryManager {
 	return &HistoryManager{
-		histories: make(map[Window][]ModedText),
+		histories: make(map[Window][]widget.ModedText),
 		cursors:   make(map[Window]int),
 	}
 }
 
-func (hm *HistoryManager) Append(win Window, input ModedText) {
+func (hm *HistoryManager) Append(win Window, input widget.ModedText) {
 	hm.mu.Lock()
 	defer hm.mu.Unlock()
 	hm.cursors[win] = len(hm.histories[win])
@@ -60,7 +61,7 @@ func (hm *HistoryManager) Append(win Window, input ModedText) {
 	hm.cursors[win] = len(hm.histories[win])
 }
 
-func (hm *HistoryManager) Insert(win Window, input ModedText) {
+func (hm *HistoryManager) Insert(win Window, input widget.ModedText) {
 	hm.mu.Lock()
 	defer hm.mu.Unlock()
 	if hm.current(win) == input {
@@ -69,28 +70,28 @@ func (hm *HistoryManager) Insert(win Window, input ModedText) {
 	hm.append(win, input)
 }
 
-func (hm *HistoryManager) append(win Window, input ModedText) {
-	hm.histories[win] = append(append(append([]ModedText{}, hm.histories[win][:hm.cursors[win]]...), input), hm.histories[win][hm.cursors[win]:]...)
+func (hm *HistoryManager) append(win Window, input widget.ModedText) {
+	hm.histories[win] = append(append(append([]widget.ModedText{}, hm.histories[win][:hm.cursors[win]]...), input), hm.histories[win][hm.cursors[win]:]...)
 }
 
-func (hm *HistoryManager) current(win Window) ModedText {
+func (hm *HistoryManager) current(win Window) widget.ModedText {
 	if hm.cursors[win] < 0 {
 		hm.cursors[win] = 0
 	}
 	if hm.cursors[win] >= len(hm.histories[win]) {
 		hm.cursors[win] = len(hm.histories[win])
-		return ModedText{}
+		return widget.ModedText{}
 	}
 	return hm.histories[win][hm.cursors[win]]
 }
 
-func (hm *HistoryManager) Current(win Window) ModedText {
+func (hm *HistoryManager) Current(win Window) widget.ModedText {
 	hm.mu.Lock()
 	defer hm.mu.Unlock()
 	return hm.current(win)
 }
 
-func (hm *HistoryManager) Previous(win Window) ModedText {
+func (hm *HistoryManager) Previous(win Window) widget.ModedText {
 	hm.mu.Lock()
 	defer hm.mu.Unlock()
 	hm.cursors[win] -= 1
@@ -98,7 +99,7 @@ func (hm *HistoryManager) Previous(win Window) ModedText {
 	return res
 }
 
-func (hm *HistoryManager) Next(win Window) ModedText {
+func (hm *HistoryManager) Next(win Window) widget.ModedText {
 	hm.mu.Lock()
 	defer hm.mu.Unlock()
 	hm.cursors[win] += 1
@@ -179,11 +180,11 @@ type Server struct {
 	pageWidth, pageHeight     int
 
 	mainWindow *ui.Grid
-	statusBar  *ActivityTabPane
+	statusBar  *widget.StatusBarPane
 
-	inputTextBox *ModedTextInput
-	chatPane     *ChatPane
-	userListPane *UserList
+	inputTextBox *widget.ModedTextInput
+	chatPane     *widget.ChatPane
+	userListPane *widget.UserList
 
 	tabber *Tabber
 
@@ -216,7 +217,7 @@ func NewServer(ev *event.Dispatcher, irc *irc.Manager) (*Server, error) {
 	srv.initUI()
 	srv.HistoryManager = NewHistoryManager()
 	srv.WindowManager = NewWindowManager(ev)
-	srv.Logger.SetOutput(srv.WindowManager.status)
+	srv.Logger.SetOutput(srv.WindowManager.Index(0))
 	srv.Logger.SetFormatter(&logFormatter{})
 	return srv, nil
 }
@@ -247,7 +248,7 @@ func (srv *Server) initUI() {
 	ui.StyleParserColorMap["gray100"] = colors.Grey100
 	ui.StyleParserColorMap["grey100"] = colors.Grey100
 
-	srv.userListPane = NewUserList()
+	srv.userListPane = widget.NewUserList()
 	srv.userListPane.Rows = []string{}
 	srv.userListPane.Border = true
 	srv.userListPane.BorderRight = false
@@ -259,7 +260,7 @@ func (srv *Server) initUI() {
 	srv.userListPane.PaddingRight = 0
 	srv.userListPane.TitleStyle.Fg = colors.Grey100
 
-	srv.chatPane = NewChatPane()
+	srv.chatPane = widget.NewChatPane()
 	srv.chatPane.Rows = []string{}
 	srv.chatPane.BorderStyle.Fg = colors.DodgerBlue1
 	srv.chatPane.Border = true
@@ -270,7 +271,7 @@ func (srv *Server) initUI() {
 	srv.chatPane.SubTitleStyle.Fg = colors.White
 	srv.chatPane.ModeStyle.Fg = colors.Grey42
 
-	srv.statusBar = NewActivityTabPane()
+	srv.statusBar = widget.NewStatusBarPane()
 	srv.statusBar.ActiveTabStyle.Fg = colors.DodgerBlue1
 	srv.statusBar.NoticeStyle = ui.NewStyle(colors.White, colors.DodgerBlue1)
 	srv.statusBar.ActivityStyle = ui.NewStyle(ui.ColorBlack, ui.ColorWhite)
@@ -281,7 +282,7 @@ func (srv *Server) initUI() {
 	srv.statusBar.BorderBottom = false
 	srv.statusBar.BorderStyle.Fg = colors.DodgerBlue1
 
-	srv.inputTextBox = NewModedTextInput(CursorFullBlock)
+	srv.inputTextBox = widget.NewModedTextInput()
 	srv.inputTextBox.Border = false
 
 	srv.mainWindow = ui.NewGrid()
@@ -311,7 +312,7 @@ func (srv *Server) Update() {
 		return
 	}
 	win.Touch()
-	srv.statusBar.TabNames, srv.statusBar.TabsWithActivity = srv.WindowManager.tabNames()
+	srv.statusBar.TabNames, srv.statusBar.TabsWithActivity = srv.WindowManager.TabNames()
 	srv.chatPane.SelectedRow = win.CurrentLine()
 	srv.chatPane.Rows = win.Lines()
 	srv.chatPane.Title = win.Title()

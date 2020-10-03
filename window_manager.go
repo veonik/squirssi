@@ -6,6 +6,8 @@ import (
 
 	"code.dopame.me/veonik/squircy3/event"
 	"github.com/sirupsen/logrus"
+
+	"code.dopame.me/veonik/squirssi/widget"
 )
 
 type WindowManager struct {
@@ -26,22 +28,17 @@ func NewWindowManager(ev *event.Dispatcher) *WindowManager {
 	return wm
 }
 
-type activityType int
-
-const TabHasActivity activityType = 0
-const TabHasNotice activityType = 1
-
-func (wm *WindowManager) tabNames() ([]string, map[int]activityType) {
+func (wm *WindowManager) TabNames() ([]string, map[int]widget.ActivityType) {
 	wm.mu.RLock()
 	defer wm.mu.RUnlock()
 	res := make([]string, len(wm.windows))
-	activity := make(map[int]activityType)
+	activity := make(map[int]widget.ActivityType)
 	for i := 0; i < len(wm.windows); i++ {
 		win := wm.windows[i]
 		if win.HasNotice() {
-			activity[i] = TabHasNotice
+			activity[i] = widget.TabHasNotice
 		} else if win.HasActivity() {
-			activity[i] = TabHasActivity
+			activity[i] = widget.TabHasActivity
 		}
 		if wm.activeIndex == i {
 			res[i] = fmt.Sprintf(" %s ", win.Title())
