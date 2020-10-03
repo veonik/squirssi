@@ -1,0 +1,30 @@
+FROM golang:buster AS build
+
+ARG race
+ARG goarch
+ARG goarm
+
+WORKDIR /squirssi
+
+COPY . .
+
+RUN go get -v ./...
+
+RUN export SQUIRCY3_REVISION=$(cat go.mod | grep squircy3 | cut -d' ' -f2 | cut -d'-' -f3) && \
+    git clone https://github.com/veonik/squircy3 ../squircy3 && \
+    cd ../squircy3 && \
+    git checkout $SQUIRCY3_REVISION
+
+RUN apt-get update && \
+    if [ "${goarch}" = "arm" ]; then     \
+        apt-get install -y gcc-arm-linux-gnueabihf; \
+    elif [ "${goarch}" = "arm64" ]; then \
+        apt-get install -y gcc-aarch64-linux-gnu; \
+    fi;
+
+RUN if [ "${goarch}" = "arm" ]; then \
+        CC=arm-linux-gnueabihf-gcc; \
+    elif [ "${goarch}" = "arm64" ]; then \
+        CC=aarch64-linux-gnu-gcc; \
+    fi; \
+    make clean dist RACE=${race} GOARCH=${goarch} GOARM=${goarm} CC=$CC
