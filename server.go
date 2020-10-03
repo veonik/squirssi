@@ -3,7 +3,6 @@ package squirssi
 
 import (
 	"fmt"
-	"strings"
 	"sync"
 
 	"code.dopame.me/veonik/squircy3/event"
@@ -16,185 +15,30 @@ import (
 	"code.dopame.me/veonik/squirssi/widget"
 )
 
-type logFormatter struct{}
-
-func (f *logFormatter) Format(entry *logrus.Entry) ([]byte, error) {
-	lvl := ""
-	switch entry.Level {
-	case logrus.InfoLevel:
-		lvl = "[ INFO](fg:blue)"
-	case logrus.DebugLevel:
-		lvl = "[DEBUG](fg:white,bg:blue)"
-	case logrus.WarnLevel:
-		lvl = "[ WARN](fg:yellow)"
-	case logrus.ErrorLevel:
-		lvl = "[ERROR](fg:red)"
-	case logrus.FatalLevel:
-		lvl = "[FATAL](fg:white,bg:red,mod:bold)"
-	case logrus.TraceLevel:
-		lvl = "[TRACE](fg:white,mod:bold)"
-	case logrus.PanicLevel:
-		lvl = "[PANIC](fg:white,bg:red,mod:bold)"
-	}
-	return []byte(fmt.Sprintf("%s[│](fg:grey) [%s](fg:gray100)", lvl, entry.Message)), nil
-}
-
-type HistoryManager struct {
-	histories map[Window][]widget.ModedText
-	cursors   map[Window]int
-
-	mu sync.Mutex
-}
-
-func NewHistoryManager() *HistoryManager {
-	return &HistoryManager{
-		histories: make(map[Window][]widget.ModedText),
-		cursors:   make(map[Window]int),
-	}
-}
-
-func (hm *HistoryManager) Append(win Window, input widget.ModedText) {
-	hm.mu.Lock()
-	defer hm.mu.Unlock()
-	hm.cursors[win] = len(hm.histories[win])
-	hm.append(win, input)
-	hm.cursors[win] = len(hm.histories[win])
-}
-
-func (hm *HistoryManager) Insert(win Window, input widget.ModedText) {
-	hm.mu.Lock()
-	defer hm.mu.Unlock()
-	if hm.current(win) == input {
-		return
-	}
-	hm.append(win, input)
-}
-
-func (hm *HistoryManager) append(win Window, input widget.ModedText) {
-	hm.histories[win] = append(append(append([]widget.ModedText{}, hm.histories[win][:hm.cursors[win]]...), input), hm.histories[win][hm.cursors[win]:]...)
-}
-
-func (hm *HistoryManager) current(win Window) widget.ModedText {
-	if hm.cursors[win] < 0 {
-		hm.cursors[win] = 0
-	}
-	if hm.cursors[win] >= len(hm.histories[win]) {
-		hm.cursors[win] = len(hm.histories[win])
-		return widget.ModedText{}
-	}
-	return hm.histories[win][hm.cursors[win]]
-}
-
-func (hm *HistoryManager) Current(win Window) widget.ModedText {
-	hm.mu.Lock()
-	defer hm.mu.Unlock()
-	return hm.current(win)
-}
-
-func (hm *HistoryManager) Previous(win Window) widget.ModedText {
-	hm.mu.Lock()
-	defer hm.mu.Unlock()
-	hm.cursors[win] -= 1
-	res := hm.current(win)
-	return res
-}
-
-func (hm *HistoryManager) Next(win Window) widget.ModedText {
-	hm.mu.Lock()
-	defer hm.mu.Unlock()
-	hm.cursors[win] += 1
-	res := hm.current(win)
-	return res
-}
-
-type Tabber struct {
-	active bool
-
-	input   string
-	match   string
-	matches []string
-	extra   string
-	pos     int
-
-	mu sync.Mutex
-}
-
-func NewTabber() *Tabber {
-	return &Tabber{}
-}
-
-func (t *Tabber) Active() bool {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	return t.active
-}
-
-func (t *Tabber) Clear() {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	t.active = false
-}
-
-func (t *Tabber) Reset(input string, channel *Channel) string {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	parts := strings.Split(input, " ")
-	t.match = parts[len(parts)-1]
-	t.extra = ""
-	if t.match == parts[0] {
-		t.extra = ": "
-	}
-	var m []string
-	for _, v := range channel.Users() {
-		if strings.HasPrefix(v, t.match) {
-			m = append(m, v+t.extra)
-		}
-	}
-	// put the match on the end of the stack so we can tab back to it.
-	m = append(m, t.match)
-	t.input = input
-	t.matches = m
-	t.pos = 0
-	t.active = true
-	return strings.Replace(input, t.match, t.matches[t.pos], 1)
-}
-
-func (t *Tabber) Tab() string {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	if !t.active {
-		return ""
-	}
-	t.pos++
-	if t.pos >= len(t.matches) {
-		t.pos = 0
-	}
-	return strings.Replace(t.input, t.match, t.matches[t.pos], 1)
-}
+var Version = "SNAPSHOT"
 
 // A Server handles user interaction and displaying screen elements.
 type Server struct {
 	*logrus.Logger
+	outputLogHook *logFileWriterHook
 
 	screenWidth, screenHeight int
 	pageWidth, pageHeight     int
 
-	mainWindow *ui.Grid
-	statusBar  *widget.StatusBarPane
-
+	mainWindow   *ui.Grid
+	statusBar    *widget.StatusBarPane
 	inputTextBox *widget.ModedTextInput
 	chatPane     *widget.ChatPane
 	userListPane *widget.UserList
-
-	tabber *Tabber
 
 	events *event.Dispatcher
 	irc    *irc.Manager
 
 	currentNick string
 
-	WindowManager  *WindowManager
-	HistoryManager *HistoryManager
+	wm      *WindowManager
+	history *HistoryManager
+	tabber  *TabCompleter
 
 	mu   sync.RWMutex
 	done chan struct{}
@@ -205,20 +49,22 @@ type Server struct {
 // NewServer creates a new server.
 func NewServer(ev *event.Dispatcher, irc *irc.Manager) (*Server, error) {
 	srv := &Server{
-		Logger: logrus.StandardLogger(),
+		Logger:        logrus.StandardLogger(),
+		outputLogHook: newLogFileWriterHook(),
 
 		events: ev,
 		irc:    irc,
 
-		tabber: NewTabber(),
+		wm:      NewWindowManager(ev),
+		history: NewHistoryManager(),
+		tabber:  NewTabCompleter(),
 
 		done: make(chan struct{}),
 	}
 	srv.initUI()
-	srv.HistoryManager = NewHistoryManager()
-	srv.WindowManager = NewWindowManager(ev)
-	srv.Logger.SetOutput(srv.WindowManager.Index(0))
-	srv.Logger.SetFormatter(&logFormatter{})
+	srv.Logger.SetOutput(srv.wm.Index(0))
+	srv.Logger.SetFormatter(&statusFormatter{})
+	srv.Logger.AddHook(srv.outputLogHook)
 	return srv, nil
 }
 
@@ -240,6 +86,18 @@ func (srv *Server) IRCDoAsync(fn func(conn *irc.Connection) error) {
 	}()
 }
 
+func (srv *Server) CurrentNick() string {
+	srv.mu.RLock()
+	defer srv.mu.RUnlock()
+	return srv.currentNick
+}
+
+func (srv *Server) setCurrentNick(newNick string) {
+	srv.mu.Lock()
+	defer srv.mu.Unlock()
+	srv.currentNick = newNick
+}
+
 func (srv *Server) initUI() {
 	ui.StyleParserColorMap["gray"] = colors.Grey35
 	ui.StyleParserColorMap["grey"] = colors.Grey35
@@ -247,6 +105,7 @@ func (srv *Server) initUI() {
 	ui.StyleParserColorMap["grey82"] = colors.Grey82
 	ui.StyleParserColorMap["gray100"] = colors.Grey100
 	ui.StyleParserColorMap["grey100"] = colors.Grey100
+	ui.StyleParserColorMap["red4"] = colors.Red4
 
 	srv.userListPane = widget.NewUserList()
 	srv.userListPane.Rows = []string{}
@@ -306,13 +165,13 @@ func (srv *Server) Close() {
 func (srv *Server) Update() {
 	srv.mu.Lock()
 	defer srv.mu.Unlock()
-	srv.statusBar.ActiveTabIndex = srv.WindowManager.ActiveIndex()
-	win := srv.WindowManager.Active()
+	srv.statusBar.ActiveTabIndex = srv.wm.ActiveIndex()
+	win := srv.wm.Active()
 	if win == nil {
 		return
 	}
 	win.Touch()
-	srv.statusBar.TabNames, srv.statusBar.TabsWithActivity = srv.WindowManager.TabNames()
+	srv.statusBar.TabNames, srv.statusBar.TabsWithActivity = srv.wm.TabNames()
 	srv.chatPane.SelectedRow = win.CurrentLine()
 	srv.chatPane.Rows = win.Lines()
 	srv.chatPane.Title = win.Title()
@@ -324,14 +183,18 @@ func (srv *Server) Update() {
 		srv.chatPane.SubTitle = ""
 		srv.chatPane.ModeText = ""
 	}
-	srv.chatPane.LeftPadding = 12
-	if srv.statusBar.ActiveTabIndex != 0 {
-		srv.chatPane.LeftPadding = 17
+	srv.chatPane.LeftPadding = win.padding() + 7
+	if srv.statusBar.ActiveTabIndex == 0 {
+		srv.chatPane.ModeText = srv.currentNick
 	}
 	srv.mainWindow.Items = nil
 	if v, ok := win.(WindowWithUserList); ok {
 		srv.userListPane.Rows = v.UserList()
-		srv.userListPane.Title = fmt.Sprintf("%d users", len(srv.userListPane.Rows))
+		suff := "s"
+		if len(srv.userListPane.Rows) == 1 {
+			suff = ""
+		}
+		srv.userListPane.Title = fmt.Sprintf("%d user%s", len(srv.userListPane.Rows), suff)
 		srv.mainWindow.Set(
 			ui.NewCol(.85, srv.chatPane),
 			ui.NewCol(.15, srv.userListPane),
@@ -394,7 +257,7 @@ func (srv *Server) resize(w, h int) {
 
 // From https://github.com/gizak/termui/issues/255
 func DisableMouseInput() {
-	tb.SetInputMode(tb.InputEsc)
+	tb.SetInputMode(tb.InputAlt)
 }
 
 // Start begins the UI event loop and does the initial render.
@@ -402,6 +265,7 @@ func (srv *Server) Start() error {
 	if err := ui.Init(); err != nil {
 		return err
 	}
+	srv.outputLogHook.Start()
 	DisableMouseInput()
 	w, h := ui.TerminalDimensions()
 	bindUIHandlers(srv, srv.events)

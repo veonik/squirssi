@@ -37,11 +37,14 @@ type Window interface {
 	Notice()
 	// Returns true if the Window has new lines considered important since last touch.
 	HasNotice() bool
+
+	padding() int
 }
 
 type WindowWithUserList interface {
 	Window
 	UserList() []string
+	Users() []string
 	HasUser(name string) bool
 	UpdateUser(name, newNew string) bool
 	DeleteUser(name string) bool
@@ -68,6 +71,10 @@ func newBufferedWindow(name string, events *event.Dispatcher) bufferedWindow {
 		current:    -1,
 		autoScroll: true,
 	}
+}
+
+func (c *bufferedWindow) padding() int {
+	return 10
 }
 
 func (c *bufferedWindow) Title() string {
@@ -162,6 +169,10 @@ func (c *bufferedWindow) ScrollTo(pos int) {
 
 type StatusWindow struct {
 	bufferedWindow
+}
+
+func (c *StatusWindow) padding() int {
+	return 6
 }
 
 func (c *StatusWindow) Title() string {

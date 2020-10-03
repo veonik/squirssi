@@ -35,7 +35,7 @@ var ircToUIMap = map[IRC]ui.Color{
 	IRCBlue:       Blue,
 	IRCGreen:      Green,
 	IRCRed:        Red,
-	IRCBrown:      Maroon,
+	IRCBrown:      Red4,
 	IRCMagenta:    Magenta1,
 	IRCOrange:     Orange1,
 	IRCYellow:     Yellow,

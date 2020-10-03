@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 
 	"code.dopame.me/veonik/squircy3/cli"
@@ -42,6 +43,8 @@ var rootDir string
 var extraPlugins stringsFlag
 var logLevel = stringLevel(logrus.InfoLevel)
 
+var Squircy3Version = "SNAPSHOT"
+
 func init() {
 	flag.StringVar(&rootDir, "root", "~/.squirssi", "path to folder containing squirssi data")
 	flag.Var(&logLevel, "log-level", "controls verbosity of logging output")
@@ -67,15 +70,23 @@ func init() {
 	rootDir = bp
 }
 
+func printPluginsLoaded(plugins *plugin.Manager) {
+	pls := plugins.Loaded()
+	sort.Strings(pls)
+	logrus.Infoln("Loaded plugins:", strings.Join(pls, ", "))
+}
+
 type Manager struct {
 	*cli.Manager
 }
 
-func (m *Manager) Start() error {
+func (m *Manager) Start() (err error) {
 	if err := m.Manager.Start(); err != nil {
 		return err
 	}
+	logrus.Infof("Starting squirssi (version %s, built with squircy3-%s)", squirssi.Version, Squircy3Version)
 	plugins := m.Plugins()
+	printPluginsLoaded(plugins)
 	srv, err := squirssi.FromPlugins(plugins)
 	if err != nil {
 		return err

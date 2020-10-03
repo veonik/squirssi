@@ -1,6 +1,8 @@
 package squirssi
 
 import (
+	"fmt"
+
 	"code.dopame.me/veonik/squircy3/event"
 	"code.dopame.me/veonik/squircy3/irc"
 	"code.dopame.me/veonik/squircy3/plugin"
@@ -30,6 +32,7 @@ func Initialize(m *plugin.Manager) (plugin.Plugin, error) {
 	if err != nil {
 		return nil, errors.Wrapf(err, "%s: missing required dependency (irc)", pluginName)
 	}
+	ircp.SetVersionString(fmt.Sprintf("squirssi v%s", Version))
 	srv, err := NewServer(ev, ircp)
 	if err != nil {
 		return nil, errors.Wrapf(err, "%s: failed to initialize Server", pluginName)

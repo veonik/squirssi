@@ -47,18 +47,18 @@ func onUIKeyPress(srv *Server, key string) {
 		srv.RenderOnly(InputTextBox)
 	case "<PageUp>":
 		srv.mu.RLock()
-		h := srv.pageHeight
+		h := srv.pageHeight - 2
 		srv.mu.RUnlock()
-		srv.WindowManager.ScrollOffset(-h)
+		srv.wm.ScrollOffset(-h)
 	case "<PageDown>":
 		srv.mu.RLock()
-		h := srv.pageHeight
+		h := srv.pageHeight - 2
 		srv.mu.RUnlock()
-		srv.WindowManager.ScrollOffset(h)
+		srv.wm.ScrollOffset(h)
 	case "<Home>":
-		srv.WindowManager.ScrollTo(0)
+		srv.wm.ScrollTo(0)
 	case "<End>":
-		srv.WindowManager.ScrollTo(math.MaxInt32)
+		srv.wm.ScrollTo(math.MaxInt32)
 	case "<Space>":
 		srv.inputTextBox.Append(" ")
 		srv.RenderOnly(InputTextBox)
@@ -69,31 +69,31 @@ func onUIKeyPress(srv *Server, key string) {
 		srv.inputTextBox.DeleteNext()
 		srv.RenderOnly(InputTextBox)
 	case "<C-5>":
-		srv.WindowManager.SelectNext()
+		srv.wm.SelectNext()
 	case "<Escape>":
-		srv.WindowManager.SelectPrev()
+		srv.wm.SelectPrev()
 	case "<Up>":
-		win := srv.WindowManager.Active()
+		win := srv.wm.Active()
 		if win == nil {
 			return
 		}
 		cur := srv.inputTextBox.Consume()
 		if cur.Text != "" {
-			srv.HistoryManager.Insert(win, cur)
+			srv.history.Insert(win, cur)
 		}
-		msg := srv.HistoryManager.Previous(win)
+		msg := srv.history.Previous(win)
 		srv.inputTextBox.Set(msg)
 		srv.RenderOnly(InputTextBox)
 	case "<Down>":
-		win := srv.WindowManager.Active()
+		win := srv.wm.Active()
 		if win == nil {
 			return
 		}
 		cur := srv.inputTextBox.Consume()
 		if cur.Text != "" {
-			srv.HistoryManager.Insert(win, cur)
+			srv.history.Insert(win, cur)
 		}
-		msg := srv.HistoryManager.Next(win)
+		msg := srv.history.Next(win)
 		srv.inputTextBox.Set(msg)
 		srv.RenderOnly(InputTextBox)
 	case "<Left>":
@@ -103,7 +103,7 @@ func onUIKeyPress(srv *Server, key string) {
 		srv.inputTextBox.CursorNext()
 		srv.RenderOnly(InputTextBox)
 	case "<Tab>":
-		win := srv.WindowManager.Active()
+		win := srv.wm.Active()
 		if ch, ok := win.(*Channel); ok {
 			var tabbed string
 			if srv.tabber.Active() {
@@ -116,8 +116,8 @@ func onUIKeyPress(srv *Server, key string) {
 		srv.RenderOnly(InputTextBox)
 	case "<Enter>":
 		in := srv.inputTextBox.Consume()
-		active := srv.WindowManager.ActiveIndex()
-		channel := srv.WindowManager.Active()
+		active := srv.wm.ActiveIndex()
+		channel := srv.wm.Active()
 		if channel == nil {
 			return
 		}
@@ -126,7 +126,8 @@ func onUIKeyPress(srv *Server, key string) {
 			srv.RenderOnly(MainWindow, InputTextBox)
 			return
 		}
-		defer srv.HistoryManager.Append(channel, in)
+		defer srv.RenderOnly(InputTextBox)
+		defer srv.history.Append(channel, in)
 		switch in.Kind {
 		case widget.ModeCommand:
 			args := strings.Split(in.Text, " ")
@@ -137,7 +138,6 @@ func onUIKeyPress(srv *Server, key string) {
 				logrus.Warnln("no command named:", c)
 			}
 		case widget.ModeMessage:
-			srv.RenderOnly(InputTextBox)
 			if active == 0 {
 				// status window doesn't accept messages
 				return

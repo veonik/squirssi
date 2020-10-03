@@ -125,7 +125,7 @@ func (cp *ChatPane) Draw(buf *ui.Buffer) {
 
 	// row that would actually be selected after text wrapping is done
 	actualSelected := 0
-	if len(rows) > cp.SelectedRow {
+	if cp.SelectedRow > 0 && len(rows) > cp.SelectedRow {
 		actualSelected = rows[cp.SelectedRow]
 	}
 	topRow := 0
