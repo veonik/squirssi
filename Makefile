@@ -39,11 +39,9 @@ all: build plugins
 clean:
 	rm -rf $(OUTPUT_BASE)
 
-build: squirssi
+build: $(SQUIRSSI_TARGET)
 
 dist: $(DIST_TARGETS)
-
-squirssi: $(SQUIRSSI_TARGET)
 
 plugins: $(PLUGIN_TARGETS)
 

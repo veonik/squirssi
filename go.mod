@@ -3,7 +3,8 @@ module code.dopame.me/veonik/squirssi
 go 1.14
 
 require (
-	code.dopame.me/veonik/squircy3 v0.9.0
+	code.dopame.me/veonik/squircy3 v0.9.1-0.20201010120604-7e010c7af392
+	github.com/dop251/goja v0.0.0-20200526165454-f1752421c432
 	github.com/gizak/termui/v3 v3.1.0
 	github.com/mattn/go-runewidth v0.0.9
 	github.com/mitchellh/go-wordwrap v0.0.0-20150314170334-ad45545899c7

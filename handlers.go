@@ -1,7 +1,6 @@
 package squirssi
 
 import (
-	"math"
 	"strings"
 
 	"code.dopame.me/veonik/squircy3/event"
@@ -45,20 +44,43 @@ func onUIKeyPress(srv *Server, key string) {
 	case "<C-b>":
 		srv.inputTextBox.Append(string(0x02))
 		srv.RenderOnly(InputTextBox)
+	case "<M-b>":
+		srv.inputTextBox.CursorPrevWord()
+		srv.RenderOnly(InputTextBox)
+	case "<M-f>":
+		srv.inputTextBox.CursorNextWord()
+		srv.RenderOnly(InputTextBox)
+	case "<Home>":
+		srv.inputTextBox.CursorStartLine()
+		srv.RenderOnly(InputTextBox)
+	case "<End>":
+		srv.inputTextBox.CursorEndLine()
+		srv.RenderOnly(InputTextBox)
 	case "<PageUp>":
 		srv.mu.RLock()
-		h := srv.pageHeight - 2
+		h := srv.pageSize - 2
 		srv.mu.RUnlock()
 		srv.wm.ScrollOffset(-h)
 	case "<PageDown>":
 		srv.mu.RLock()
-		h := srv.pageHeight - 2
+		h := srv.pageSize - 2
 		srv.mu.RUnlock()
 		srv.wm.ScrollOffset(h)
-	case "<Home>":
-		srv.wm.ScrollTo(0)
-	case "<End>":
-		srv.wm.ScrollTo(math.MaxInt32)
+	case "<M-<PageUp>>":
+		srv.mu.Lock()
+		h := srv.pageSize - 2
+		srv.userListPane.SelectedRow -= h
+		srv.mu.Unlock()
+		srv.events.Emit("ui.DIRTY", nil)
+	case "<M-<PageDown>>":
+		srv.mu.Lock()
+		h := srv.pageSize - 2
+		if srv.userListPane.SelectedRow == 0 {
+			srv.userListPane.SelectedRow = h
+		}
+		srv.userListPane.SelectedRow += h
+		srv.mu.Unlock()
+		srv.events.Emit("ui.DIRTY", nil)
 	case "<Space>":
 		srv.inputTextBox.Append(" ")
 		srv.RenderOnly(InputTextBox)
@@ -150,7 +172,7 @@ func onUIKeyPress(srv *Server, key string) {
 			logrus.Debugln("received unhandled keypress:", key)
 			return
 		}
-		if key == "/" && srv.inputTextBox.Len() == 0 {
+		if key == "/" && srv.inputTextBox.Pos() == 0 {
 			srv.inputTextBox.ToggleMode()
 		} else {
 			srv.inputTextBox.Append(key)

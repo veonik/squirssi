@@ -3,6 +3,7 @@ package widget
 import (
 	"image"
 	"strings"
+	"unicode"
 
 	ui "github.com/gizak/termui/v3"
 	tb "github.com/nsf/termbox-go"
@@ -90,6 +91,54 @@ func (i *TextInput) CursorNext() {
 	i.update()
 }
 
+func (i *TextInput) CursorPrevWord() {
+	i.Lock()
+	defer i.update()
+	defer i.Unlock()
+	for j, inPrevWord := i.cursorPos-1, false; j > 0; j-- {
+		if unicode.IsSpace(rune(i.input[j])) {
+			if inPrevWord {
+				i.cursorPos = j + 1
+				return
+			}
+		} else {
+			inPrevWord = true
+		}
+	}
+	i.cursorPos = 0
+}
+
+func (i *TextInput) CursorNextWord() {
+	i.Lock()
+	defer i.update()
+	defer i.Unlock()
+	for j, inNextWord := i.cursorPos+1, false; j < len(i.input); j++ {
+		if unicode.IsSpace(rune(i.input[j])) {
+			if inNextWord {
+				i.cursorPos = j + 1
+				return
+			}
+		} else {
+			inNextWord = true
+		}
+	}
+	i.cursorPos = len(i.input)
+}
+
+func (i *TextInput) CursorStartLine() {
+	i.Lock()
+	defer i.update()
+	defer i.Unlock()
+	i.cursorPos = 0
+}
+
+func (i *TextInput) CursorEndLine() {
+	i.Lock()
+	defer i.update()
+	defer i.Unlock()
+	i.cursorPos = len(i.input)
+}
+
 // Peek returns the current input in the TextInput without clearing.
 func (i *TextInput) Peek() string {
 	i.Lock()
@@ -113,6 +162,13 @@ func (i *TextInput) Len() int {
 	i.Lock()
 	defer i.Unlock()
 	return len(i.input)
+}
+
+// Len returns the cursor position in the contents of the TextInput.
+func (i *TextInput) Pos() int {
+	i.Lock()
+	defer i.Unlock()
+	return i.cursorPos
 }
 
 // Reset the contents of the TextInput.

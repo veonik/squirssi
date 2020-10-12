@@ -135,7 +135,7 @@ func WriteNick(wm *WindowManager, nick Nick, newNick Nick) {
 					logrus.Warnln("failed to write nick change:", err)
 				}
 			}
-		} else {
+		} else if win.Title() == "status" {
 			if _, err := win.Write([]byte(fmt.Sprintf("%s[│](fg:grey) You are now known as %s", padding, newNick))); err != nil {
 				logrus.Warnln("failed to write nick change:", err)
 			}
@@ -182,28 +182,28 @@ func WriteMessage(win Window, message string) {
 
 func Write331(win Window) {
 	padding := padLeft("* ", win.padding())
-	if _, err := win.WriteString(fmt.Sprintf("%s[│](fg:grey) No topic is set in %s", padding, win.Title())); err != nil {
+	if _, err := win.WriteString(fmt.Sprintf("%s[│](fg:grey) No topic is set in [%s](mod:bold)", padding, win.Title())); err != nil {
 		logrus.Warnln("%s: failed to write topic message:", err)
 	}
 }
 
 func Write332(win Window, topic string) {
 	padding := padLeft("* ", win.padding())
-	if _, err := win.WriteString(fmt.Sprintf("%s[│](fg:grey) Topic for %s is: %s", padding, win.Title(), topic)); err != nil {
+	if _, err := win.WriteString(fmt.Sprintf("%s[│](fg:grey) Topic for [%s](mod:bold) is: %s", padding, win.Title(), topic)); err != nil {
 		logrus.Warnln("%s: failed to write topic message:", err)
 	}
 }
 
 func WriteJoin(win Window, nick Nick) {
 	padding := padLeft("* ", win.padding())
-	if _, err := win.WriteString(fmt.Sprintf("%s[│](fg:grey) %s joined %s", padding, nick.String(), win.Title())); err != nil {
+	if _, err := win.WriteString(fmt.Sprintf("%s[│](fg:grey) %s joined [%s](mod:bold)", padding, nick.String(), win.Title())); err != nil {
 		logrus.Warnln("%s: failed to write join message:", err)
 	}
 }
 
 func WriteModes(win Window, modes string) {
 	padding := padLeft("* ", win.padding())
-	if _, err := win.WriteString(fmt.Sprintf("%s[│](fg:grey) Modes for %s: %s", padding, win.Title(), modes)); err != nil {
+	if _, err := win.WriteString(fmt.Sprintf("%s[│](fg:grey) Modes for [%s](mod:bold): %s", padding, win.Title(), modes)); err != nil {
 		logrus.Warnln("%s: failed to write mode message:", err)
 	}
 }
@@ -220,7 +220,7 @@ func WriteMode(win Window, nick Nick, mode string) {
 		}
 		return
 	}
-	if _, err := win.WriteString(fmt.Sprintf("%s[│](fg:grey) %s changed mode on %s (%s)", padding, nick.String(), win.Title(), mode)); err != nil {
+	if _, err := win.WriteString(fmt.Sprintf("%s[│](fg:grey) %s changed mode on [%s](mod:bold) (%s)", padding, nick.String(), win.Title(), mode)); err != nil {
 		logrus.Warnln("%s: failed to write mode message:", err)
 	}
 }
@@ -232,7 +232,7 @@ func WriteTopic(win Window, nick Nick, topic string) {
 		ch.mu.Unlock()
 	}
 	padding := padLeft("* ", win.padding())
-	if _, err := win.WriteString(fmt.Sprintf("%s[│](fg:grey) %s changed topic on %s to: %s", padding, nick.String(), win.Title(), topic)); err != nil {
+	if _, err := win.WriteString(fmt.Sprintf("%s[│](fg:grey) %s changed topic on [%s](mod:bold) to: %s", padding, nick.String(), win.Title(), topic)); err != nil {
 		logrus.Warnln("%s: failed to write mode message:", err)
 	}
 }
@@ -245,22 +245,22 @@ func WritePart(win Window, nick Nick, message string) {
 	} else {
 		message = " (" + message + ")"
 	}
-	if _, err := win.WriteString(fmt.Sprintf("%s[│](fg:grey) %s left %s%s", padding, nick.String(), title, message)); err != nil {
+	if _, err := win.WriteString(fmt.Sprintf("%s[│](fg:grey) %s left [%s](mod:bold)%s", padding, nick.String(), title, message)); err != nil {
 		logrus.Warnln("%s: failed to write part message:", err)
 	}
 }
 
-func WriteKick(win Window, nick Nick, message string) {
+func WriteKick(win Window, kicker Nick, kicked Nick, message string) {
 	padding := padLeft("* ", win.padding())
-	if nick.string == message {
+	if kicked.string == message {
 		message = ""
 	} else {
 		message = " (" + message + ")"
 	}
-	if nick.me {
+	if kicked.me {
 		win.Notice()
 	}
-	if _, err := win.WriteString(fmt.Sprintf("%s[│](fg:grey) %s got kicked from %s%s", padding, nick.String(), win.Title(), message)); err != nil {
+	if _, err := win.WriteString(fmt.Sprintf("%s[│](fg:grey) %s kicked %s from [%s](mod:bold)%s", padding, kicker.String(), kicked.String(), win.Title(), message)); err != nil {
 		logrus.Warnln("failed to write kick message:", err)
 	}
 }

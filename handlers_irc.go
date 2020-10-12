@@ -274,9 +274,14 @@ func onIRCNick(srv *Server, ev *IRCEvent) {
 
 func onIRCKick(srv *Server, ev *IRCEvent) {
 	channel := ev.Target
+	kicker := SomeNick(ev.Nick)
 	kicked := SomeNick(ev.Args[1])
-	if kicked.string == srv.CurrentNick() {
+	myNick := srv.CurrentNick()
+	if kicked.string == myNick {
 		kicked.me = true
+	}
+	if kicker.string == myNick {
+		kicker.me = true
 	}
 	if kicked.me {
 		go func() {
@@ -297,7 +302,7 @@ func onIRCKick(srv *Server, ev *IRCEvent) {
 	if ch, ok := win.(*Channel); ok {
 		ch.DeleteUser(kicked.string)
 	}
-	WriteKick(win, kicked, ev.Message)
+	WriteKick(win, kicker, kicked, ev.Message)
 }
 
 var namesCache = &struct {

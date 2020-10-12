@@ -34,7 +34,7 @@ func (f *fileFormatter) Format(entry *logrus.Entry) ([]byte, error) {
 }
 
 // statusFormatter prints log messages formatted for the StatusWindow.
-type statusFormatter struct{
+type statusFormatter struct {
 	levelPadding int
 }
 

@@ -3,7 +3,9 @@ package squirssi
 
 import (
 	"fmt"
+	"os"
 	"sync"
+	"time"
 
 	"code.dopame.me/veonik/squircy3/event"
 	"code.dopame.me/veonik/squircy3/irc"
@@ -23,7 +25,7 @@ type Server struct {
 	outputLogHook *logFileWriterHook
 
 	screenWidth, screenHeight int
-	pageWidth, pageHeight     int
+	pageSize                  int
 
 	mainWindow   *ui.Grid
 	statusBar    *widget.StatusBarPane
@@ -44,6 +46,8 @@ type Server struct {
 	done chan struct{}
 
 	interrupt Interrupter
+
+	debounce bool
 }
 
 // NewServer creates a new server.
@@ -236,9 +240,24 @@ func (srv *Server) RenderOnly(items ...screenElement) {
 func (srv *Server) Render() {
 	srv.mu.Lock()
 	defer srv.mu.Unlock()
+	if srv.debounce {
+		return
+	}
+	srv.debounce = true
+	go func() {
+		<-time.After(1 * time.Millisecond)
+		srv.doRender(false)
+	}()
+}
+
+func (srv *Server) doRender(force bool) {
+	srv.mu.Lock()
+	defer srv.mu.Unlock()
 	ui.Render(srv.mainWindow, srv.statusBar, srv.inputTextBox)
-	srv.pageHeight = srv.chatPane.Inner.Dy()
-	srv.pageWidth = srv.chatPane.Inner.Dx()
+	srv.pageSize = srv.chatPane.Inner.Dy()
+	if !force {
+		srv.debounce = false
+	}
 }
 
 func (srv *Server) resize(w, h int) {
@@ -246,10 +265,8 @@ func (srv *Server) resize(w, h int) {
 	defer srv.mu.Unlock()
 	srv.screenHeight = h
 	srv.screenWidth = w
-	// guess the page height and width based on screen size
-	// the actual size will be updated after rendering occurs
-	srv.pageHeight = h - 8
-	srv.pageWidth = int(float64(w)*.9) - 8
+	// guess the page size for now, will be corrected after the first render.
+	srv.pageSize = h - 8
 	srv.statusBar.SetRect(0, srv.screenHeight-2, srv.screenWidth, srv.screenHeight)
 	srv.inputTextBox.SetRect(0, srv.screenHeight-srv.statusBar.Dy()-1, srv.screenWidth, srv.screenHeight-srv.statusBar.Dy())
 	srv.mainWindow.SetRect(0, 0, srv.screenWidth, srv.screenHeight-srv.statusBar.Dy()-srv.inputTextBox.Dy())
@@ -303,12 +320,14 @@ func (srv *Server) startUIEventLoop() {
 					panic(fmt.Sprintf("received termui Resize event but Payload was unexpected type %T", e.Payload))
 				}
 				srv.resize(resize.Width, resize.Height)
-				srv.Update()
-				srv.Render()
+				fmt.Fprintf(os.Stderr, "resize event: new size %dx%d\n", resize.Width, resize.Height)
+				// logrus.Debugf("resize event: new size %dx%d", resize.Width, resize.Height)
 				srv.events.Emit("ui.RESIZE", map[string]interface{}{
 					"width":  resize.Width,
 					"height": resize.Height,
 				})
+				srv.doRender(true)
+				srv.events.Emit("ui.DIRTY", nil)
 			}
 		}
 	}

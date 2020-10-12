@@ -39,8 +39,36 @@ func (s *stringLevel) Set(str string) error {
 	return nil
 }
 
+type pluginOptsFlag map[string]interface{}
+
+func (s pluginOptsFlag) String() string {
+	var res []string
+	for k, v := range s {
+		res = append(res, fmt.Sprintf("%s=%s", k, v))
+	}
+	return strings.Join(res, " ")
+}
+
+func (s pluginOptsFlag) Set(str string) error {
+	p := strings.SplitN(str, "=", 2)
+	if len(p) == 1 {
+		p = append(p, "true")
+	}
+	var v interface{}
+	if p[1] == "true" {
+		v = true
+	} else if p[1] == "false" {
+		v = false
+	} else {
+		v = p[1]
+	}
+	s[p[0]] = v
+	return nil
+}
+
 var rootDir string
 var extraPlugins stringsFlag
+var pluginOptions pluginOptsFlag
 var logLevel = stringLevel(logrus.InfoLevel)
 
 var Squircy3Version = "SNAPSHOT"
@@ -49,6 +77,7 @@ func init() {
 	flag.StringVar(&rootDir, "root", "~/.squirssi", "path to folder containing squirssi data")
 	flag.Var(&logLevel, "log-level", "controls verbosity of logging output")
 	flag.Var(&extraPlugins, "plugin", "path to shared plugin .so file, multiple plugins may be given")
+	flag.Var(&pluginOptions, "plugin-option", "specify extra plugin configuration option, format: key=value")
 
 	flag.Usage = func() {
 		fmt.Println("Usage: ", os.Args[0], "[options]")
@@ -96,7 +125,7 @@ func (m *Manager) Start() (err error) {
 }
 
 func NewManager(rootDir string, extraPlugins ...string) (*Manager, error) {
-	cm, err := cli.NewManager(rootDir, extraPlugins...)
+	cm, err := cli.NewManager(rootDir, pluginOptions, extraPlugins...)
 	if err != nil {
 		return nil, err
 	}

@@ -90,7 +90,7 @@ var builtIns = map[string]Command{
 			conn.SendRaw(strings.Join(args[1:], " "))
 			win := srv.wm.Active()
 			if win != nil {
-				WriteRaw(win, "-> " + strings.Join(args[1:], " "))
+				WriteRaw(win, "-> "+strings.Join(args[1:], " "))
 			}
 			return nil
 		})
