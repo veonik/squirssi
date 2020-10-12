@@ -3,7 +3,6 @@ package squirssi
 
 import (
 	"fmt"
-	"os"
 	"sync"
 	"time"
 
@@ -320,12 +319,15 @@ func (srv *Server) startUIEventLoop() {
 					panic(fmt.Sprintf("received termui Resize event but Payload was unexpected type %T", e.Payload))
 				}
 				srv.resize(resize.Width, resize.Height)
-				fmt.Fprintf(os.Stderr, "resize event: new size %dx%d\n", resize.Width, resize.Height)
-				// logrus.Debugf("resize event: new size %dx%d", resize.Width, resize.Height)
 				srv.events.Emit("ui.RESIZE", map[string]interface{}{
 					"width":  resize.Width,
 					"height": resize.Height,
 				})
+				// todo: its unclear why, but after much frustration, i've
+				//  decided i'm ok with the hack: when the screen is resized
+				//  in tmux, it needs two renders to fully display properly.
+				//  so every time there is a resize, force a render and emit a
+				//  good old fashioned ui.DIRTY event.
 				srv.doRender(true)
 				srv.events.Emit("ui.DIRTY", nil)
 			}

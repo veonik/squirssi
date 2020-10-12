@@ -135,7 +135,7 @@ func WriteNick(wm *WindowManager, nick Nick, newNick Nick) {
 					logrus.Warnln("failed to write nick change:", err)
 				}
 			}
-		} else if win.Title() == "status" {
+		} else if win.Title() == "status" && nick.me {
 			if _, err := win.Write([]byte(fmt.Sprintf("%s[│](fg:grey) You are now known as %s", padding, newNick))); err != nil {
 				logrus.Warnln("failed to write nick change:", err)
 			}
