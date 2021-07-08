@@ -31,7 +31,7 @@ const (
 
 var ircToUIMap = map[IRC]ui.Color{
 	IRCWhite:      White,
-	IRCBlack:      Black,
+	IRCBlack:      Grey53,
 	IRCBlue:       Blue,
 	IRCGreen:      Green,
 	IRCRed:        Red,

@@ -46,6 +46,10 @@ func (ul *UserList) Draw(buf *ui.Buffer) {
 		topRow = ul.SelectedRow
 	}
 
+	if topRow < 0 {
+		topRow = 0
+	}
+
 	// draw rows
 	for i := topRow; i < len(ul.Rows) && yCoordinate < ul.Inner.Max.Y; i++ {
 		row := ul.Rows[i]

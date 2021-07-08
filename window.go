@@ -19,34 +19,41 @@ type Window interface {
 
 	// Title of the Window.
 	Title() string
-	// Contents of the Window, separated by line.
+	// Lines returns the contents of the Window.
 	Lines() []string
 
-	// The bottom-most visible line number, or negative to indicate
+	// CurrentLine returns the bottom-most visible line number, or negative to indicate
 	// the window is pinned to the end of input.
 	CurrentLine() int
-	// Set the current line to pos. Set to negative to pin to the end of input.
+	// ScrollTo sets the current line to pos. Set to negative to pin to the end of input.
 	ScrollTo(pos int)
+	// AutoScroll returns true if automatic scrolling is currently active.
 	AutoScroll() bool
 
-	// Clears the activity indicator for the window, it it's set.
+	// Touch clears the activity indicator for the window, it it's set.
 	Touch()
-	// Returns true if the Window has new lines since the last touch.
+	// HasActivity returns true if the Window has new lines since the last touch.
 	HasActivity() bool
-	// Set notice indicator for this Window.
+	// Notice set the notice indicator for this Window.
 	Notice()
-	// Returns true if the Window has new lines considered important since last touch.
+	// HasNotice returns true if the Window has new lines considered important since last touch.
 	HasNotice() bool
 
+	// padding returns how many characters wide the left gutter of the window is.
 	padding() int
 }
 
 type WindowWithUserList interface {
 	Window
+	// UserList returns the styled list of users.
 	UserList() []string
+	// Users returns just the usernames in the window.
 	Users() []string
+	// HasUser returns true if the window contains the given user.
 	HasUser(name string) bool
+	// UpdateUser updates the user to a new name in the current window.
 	UpdateUser(name, newNew string) bool
+	// DeleteUser removes the user from the current window.
 	DeleteUser(name string) bool
 }
 
@@ -205,10 +212,9 @@ func (u User) String() string {
 type Channel struct {
 	bufferedWindow
 
-	topic        string
-	modes        string
-	users        []User
-	usersIndexed map[string]int
+	topic string
+	modes string
+	users []User
 }
 
 func (c *Channel) Topic() string {
@@ -226,11 +232,9 @@ func (c *Channel) Modes() string {
 func (c *Channel) SetUsers(users []string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.usersIndexed = make(map[string]int)
 	r := make([]User, len(users))
 	for i, u := range users {
 		r[i] = SomeUser(u)
-		c.usersIndexed[r[i].string] = i
 	}
 	c.users = r
 }
@@ -273,8 +277,10 @@ func (c *Channel) UserList() []string {
 }
 
 func (c *Channel) userIndex(name string) int {
-	if v, ok := c.usersIndexed[name]; ok {
-		return v
+	for i := 0; i < len(c.users); i++ {
+		if c.users[i].string == name {
+			return i
+		}
 	}
 	return -1
 }
@@ -286,7 +292,6 @@ func (c *Channel) AddUser(user User) {
 		c.users[idx].modes = user.modes
 		return
 	}
-	c.usersIndexed[user.string] = len(c.users)
 	c.users = append(c.users, user)
 }
 
@@ -294,8 +299,6 @@ func (c *Channel) UpdateUser(name, newName string) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if idx := c.userIndex(name); idx >= 0 {
-		delete(c.usersIndexed, name)
-		c.usersIndexed[newName] = idx
 		c.users[idx].string = newName
 		return true
 	}
@@ -306,7 +309,6 @@ func (c *Channel) DeleteUser(name string) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if idx := c.userIndex(name); idx >= 0 {
-		delete(c.usersIndexed, name)
 		c.users = append(c.users[:idx], c.users[idx+1:]...)
 		return true
 	}

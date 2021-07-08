@@ -3,6 +3,7 @@ package squirssi
 import (
 	"strconv"
 	"strings"
+	"time"
 
 	"code.dopame.me/veonik/squircy3/event"
 	"code.dopame.me/veonik/squircy3/irc"
@@ -18,6 +19,8 @@ func modeHandler(mode string) Command {
 	}
 }
 
+// builtInsOrdered is ordered in that it is in the desired order with
+// related commands grouped together.
 var builtInsOrdered = []string{
 	"exit",
 	"connect",
@@ -26,6 +29,7 @@ var builtInsOrdered = []string{
 	"wc",
 	"join",
 	"part",
+	"invite",
 	"topic",
 	"whois",
 	"names",
@@ -46,6 +50,7 @@ var builtInsOrdered = []string{
 	"unmute",
 	"echo",
 	"raw",
+	"eval",
 	"help",
 }
 
@@ -57,6 +62,7 @@ var builtIns = map[string]Command{
 	"wc":     closeWindow,
 	"join":   joinChannel,
 	"part":   partChannel,
+	"invite": inviteTarget,
 	"topic":  topicChange,
 	"whois":  whoisNick,
 	"names":  namesChannel,
@@ -82,18 +88,31 @@ var builtIns = map[string]Command{
 	"quit":       disconnectServer,
 
 	"echo": func(srv *Server, args []string) {
-		win := srv.wm.Active()
+		win := srv.windows.Active()
 		_, _ = win.WriteString(strings.Join(args[1:], " "))
 	},
 	"raw": func(srv *Server, args []string) {
 		srv.IRCDoAsync(func(conn *irc.Connection) error {
 			conn.SendRaw(strings.Join(args[1:], " "))
-			win := srv.wm.Active()
+			win := srv.windows.Active()
 			if win != nil {
 				WriteRaw(win, "-> "+strings.Join(args[1:], " "))
 			}
 			return nil
 		})
+	},
+	"eval": func(srv *Server, args []string) {
+		win := srv.windows.Active()
+		script := strings.Join(args[1:], " ")
+		go func() {
+			WriteEval(win, script)
+			res, err := srv.vm.RunString(script).Await()
+			if err != nil {
+				WriteEvalError(win, err.Error())
+				return
+			}
+			WriteEvalResult(win, res.ToString().String())
+		}()
 	},
 }
 
@@ -104,6 +123,7 @@ var builtInDescriptions = map[string]string{
 	"wc":         "Closes the given window by number, or the currently active window.",
 	"join":       "Attempts to join the given channel.",
 	"part":       "Parts the given channel.",
+	"invite":     "Invites a user to the given channel.",
 	"topic":      "Sets the topic for the given channel, or the currently active window.",
 	"whois":      "Runs a WHOIS query on the given nickname.",
 	"names":      "Runs a NAMES query on the given channel.",
@@ -126,10 +146,11 @@ var builtInDescriptions = map[string]string{
 	"disconnect": "Disconnects from the connected IRC server.",
 	"echo":       "Writes any arguments given to the currently active window.",
 	"raw":        "Sends a raw IRC command.",
+	"eval":       "Evaluate some javascript in the embedded runtime.",
 }
 
 func helpCmd(srv *Server, args []string) {
-	win := srv.wm.Active()
+	win := srv.windows.Active()
 	if win == nil {
 		return
 	}
@@ -174,14 +195,7 @@ func exitProgram(srv *Server, _ []string) {
 }
 
 func topicChange(srv *Server, args []string) {
-	if len(args) < 2 || !strings.HasPrefix("#", args[1]) {
-		win := srv.wm.Active()
-		if win == nil || !strings.HasPrefix(win.Title(), "#") {
-			logrus.Warnln("topic: unable to determine current channel")
-			return
-		}
-		args = append(append([]string{}, args[0], win.Title()), args[1:]...)
-	}
+	args = guessTargetInArgs(srv, args, 1)
 	target := args[1]
 	if len(args) == 2 {
 		srv.IRCDoAsync(func(conn *irc.Connection) error {
@@ -198,16 +212,7 @@ func topicChange(srv *Server, args []string) {
 }
 
 func kickTarget(srv *Server, args []string) {
-	if len(args) < 2 || !strings.HasPrefix(args[1], "#") {
-		win := srv.wm.Active()
-		t := ""
-		if win == nil || win.Title() == "status" {
-			t = srv.CurrentNick()
-		} else {
-			t = win.Title()
-		}
-		args = append(append([]string{}, args[0], t), args[1:]...)
-	}
+	args = guessTargetInArgs(srv, args, 1)
 	target := args[1]
 	if len(target) > 0 && target[0] != '#' {
 		logrus.Warnln("kick: unable to determine current channel")
@@ -223,7 +228,7 @@ func kickTarget(srv *Server, args []string) {
 
 func modeChange(srv *Server, args []string) {
 	if len(args) < 2 || strings.HasPrefix(args[1], "+") || strings.HasPrefix(args[1], "-") {
-		win := srv.wm.Active()
+		win := srv.windows.Active()
 		t := ""
 		if win == nil || win.Title() == "status" {
 			t = srv.CurrentNick()
@@ -234,7 +239,35 @@ func modeChange(srv *Server, args []string) {
 	}
 	target := args[1]
 	modes := args[2:]
+	var irc324Handler event.Handler
+	var irc329Handler event.Handler
+	if len(modes) == 0 || len(modes[0]) == 0 {
+		irc324Handler = event.HandlerFunc(func(ev *event.Event) {
+			args := ev.Data["Args"].([]string)
+			modes := strings.Join(args[2:], " ")
+			win := srv.windows.Named(args[1])
+			WriteModes(win, modes)
+			srv.events.Unbind("irc.324", irc324Handler)
+		})
+		irc329Handler = event.HandlerFunc(func(ev *event.Event) {
+			args := ev.Data["Args"].([]string)
+			target := args[1]
+			win := srv.windows.Named(target)
+			if _, ok := win.(*Channel); ok {
+				created, _ := strconv.Atoi(args[2])
+				t := time.Unix(int64(created), 0)
+				Write329(win, t)
+			}
+			srv.events.Unbind("irc.329", irc329Handler)
+		})
+	}
 	srv.IRCDoAsync(func(conn *irc.Connection) error {
+		if irc324Handler != nil {
+			srv.events.Bind("irc.324", irc324Handler)
+		}
+		if irc329Handler != nil {
+			srv.events.Bind("irc.329", irc329Handler)
+		}
 		conn.Mode(target, modes...)
 		return nil
 	})
@@ -251,13 +284,13 @@ func selectWindow(srv *Server, args []string) {
 		logrus.Warnln("window: expected first argument to be an integer")
 		return
 	}
-	srv.wm.SelectIndex(ch)
+	srv.windows.SelectIndex(ch)
 }
 
 func closeWindow(srv *Server, args []string) {
 	var ch int
 	if len(args) < 2 {
-		ch = srv.wm.ActiveIndex()
+		ch = srv.windows.ActiveIndex()
 	} else {
 		var err error
 		ch, err = strconv.Atoi(args[1])
@@ -266,7 +299,7 @@ func closeWindow(srv *Server, args []string) {
 			return
 		}
 	}
-	win := srv.wm.Index(ch)
+	win := srv.windows.Index(ch)
 	if ch, ok := win.(*Channel); ok {
 		myNick := srv.CurrentNick()
 		if ch.HasUser(myNick) {
@@ -276,27 +309,60 @@ func closeWindow(srv *Server, args []string) {
 			})
 		}
 	}
-	srv.wm.CloseIndex(ch)
+	srv.windows.CloseIndex(ch)
+}
+
+func guessTargetInArgs(srv *Server, args []string, targetIndex int) []string {
+	if targetIndex < 0 {
+		return args
+	}
+	if len(args) < targetIndex+1 || !strings.HasPrefix(args[targetIndex], "#") {
+		win := srv.windows.Active()
+		t := ""
+		if win != nil && win.Title() != "status" {
+			t = win.Title()
+		}
+		args = append(append([]string{}, args[targetIndex-1], t), args[targetIndex:]...)
+	}
+	return args
 }
 
 func joinChannel(srv *Server, args []string) {
-	if len(args) < 2 {
-		logrus.Warnln("join: expected one argument")
+	args = guessTargetInArgs(srv, args, 1)
+	target := args[1]
+	if len(target) > 0 && target[0] != '#' {
+		logrus.Warnln("join: unable to determine current channel")
 		return
 	}
 	srv.IRCDoAsync(func(conn *irc.Connection) error {
-		conn.Join(args[1])
+		conn.Join(target)
 		return nil
 	})
 }
 
 func partChannel(srv *Server, args []string) {
-	if len(args) < 2 {
-		logrus.Warnln("part: expected one argument")
+	args = guessTargetInArgs(srv, args, 1)
+	target := args[1]
+	if len(target) > 0 && target[0] != '#' {
+		logrus.Warnln("part: unable to determine current channel")
 		return
 	}
 	srv.IRCDoAsync(func(conn *irc.Connection) error {
-		conn.Part(args[1])
+		conn.Part(target)
+		return nil
+	})
+}
+
+func inviteTarget(srv *Server, args []string) {
+	args = guessTargetInArgs(srv, args, 1)
+	target := args[1]
+	if len(target) > 0 && target[0] != '#' {
+		logrus.Warnln("invite: unable to determine current channel")
+		return
+	}
+	nick := args[2]
+	srv.IRCDoAsync(func(conn *irc.Connection) error {
+		conn.SendRawf("INVITE %s :%s", nick, target)
 		return nil
 	})
 }
@@ -313,14 +379,15 @@ func whoisNick(srv *Server, args []string) {
 }
 
 func namesChannel(srv *Server, args []string) {
-	if len(args) < 2 {
-		logrus.Warnln("names: expected one argument")
+	args = guessTargetInArgs(srv, args, 1)
+	target := args[1]
+	if len(target) > 0 && target[0] != '#' {
+		logrus.Warnln("names: unable to determine current channel")
 		return
 	}
-	channel := args[1]
-	win := srv.wm.Named(channel)
+	win := srv.windows.Named(target)
 	if win == nil {
-		logrus.Warnln("names: no window named", channel)
+		logrus.Warnln("names: no window named", target)
 		return
 	}
 	irc353Handler := event.HandlerFunc(func(ev *event.Event) {
@@ -340,7 +407,7 @@ func namesChannel(srv *Server, args []string) {
 	srv.events.Bind("irc.353", irc353Handler)
 	srv.events.Bind("irc.366", irc366Handler)
 	srv.IRCDoAsync(func(conn *irc.Connection) error {
-		conn.SendRawf("NAMES :%s", channel)
+		conn.SendRawf("NAMES :%s", target)
 		return nil
 	})
 }
@@ -358,7 +425,7 @@ func changeNick(srv *Server, args []string) {
 
 func actionTarget(srv *Server, args []string) {
 	message := strings.Join(args[1:], " ")
-	window := srv.wm.Active()
+	window := srv.windows.Active()
 	if window == nil || window.Title() == "status" {
 		return
 	}
@@ -384,21 +451,21 @@ func msgTarget(srv *Server, args []string) {
 		conn.Privmsg(target, message)
 		return nil
 	})
-	window := srv.wm.Named(target)
+	window := srv.windows.Named(target)
 	if !strings.HasPrefix(target, "#") {
 		// direct message!
 		if window == nil {
 			dm := &DirectMessage{
 				newBufferedWindow(target, srv.events),
 			}
-			srv.wm.Append(dm)
+			srv.windows.Append(dm)
 			window = dm
 		}
 	}
 	myNick := MyNick(srv.CurrentNick())
 	if window == nil {
 		// no window for this but we might still have sent the message, so write it to the status window
-		window = srv.wm.Index(0)
+		window = srv.windows.Index(0)
 		message = target + " -> " + message
 	}
 	WritePrivmsg(window, myNick, MyMessage(message))
@@ -418,10 +485,10 @@ func noticeTarget(srv *Server, args []string) {
 		conn.Notice(target, message)
 		return nil
 	})
-	window := srv.wm.Named(target)
+	window := srv.windows.Named(target)
 	if window == nil {
 		// no window for this but we might still have sent the message, so write it to the status window
-		window = srv.wm.Index(0)
+		window = srv.windows.Index(0)
 	}
 	WriteNotice(window, SomeTarget(target, srv.CurrentNick()), true, message)
 }
@@ -440,10 +507,10 @@ func ctcpTarget(srv *Server, args []string) {
 		conn.SendRawf("PRIVMSG %s :\x01%s\x01", target, message)
 		return nil
 	})
-	window := srv.wm.Named(target)
+	window := srv.windows.Named(target)
 	if window == nil {
 		// no window for this but we might still have sent the message, so write it to the status window
-		window = srv.wm.Index(0)
+		window = srv.windows.Index(0)
 	}
 	WriteCTCP(window, SomeTarget(target, srv.CurrentNick()), true, message)
 }

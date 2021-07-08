@@ -67,6 +67,23 @@ func ParseIRCStyles(c []ui.Cell) []ui.Cell {
 					break
 				}
 			}
+			if fg != "" {
+				p, _ := strconv.Atoi(fg)
+				if p > 15 {
+					// fg is too big, only use the first number
+					fg = fg[0:1]
+					eat -= len(bg) + 1
+					bg = ""
+				}
+			}
+			if bg != "" {
+				p, _ := strconv.Atoi(bg)
+				if p > 15 {
+					// bg is too big, only use the first number
+					bg = bg[0:1]
+					eat -= 1
+				}
+			}
 			i += eat
 			if fg == "" && bg == "" {
 				style.Fg = initial.Fg

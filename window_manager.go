@@ -81,6 +81,22 @@ func (wm *WindowManager) Append(w Window) {
 	wm.windows = append(wm.windows, w)
 }
 
+func (wm *WindowManager) NamedOrActive(name string) Window {
+	var win Window
+	wm.mu.RLock()
+	defer wm.mu.RUnlock()
+	for _, w := range wm.windows {
+		if w.Title() == name {
+			win = w
+			break
+		}
+	}
+	if win == nil {
+		return wm.windows[wm.activeIndex]
+	}
+	return win
+}
+
 // Named returns the window with the given name, if it exists.
 func (wm *WindowManager) Named(name string) Window {
 	var win Window

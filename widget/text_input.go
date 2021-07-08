@@ -65,9 +65,9 @@ func (i *TextInput) Draw(buf *ui.Buffer) {
 
 func (i *TextInput) update() {
 	t := i.input
-	t = strings.Replace(t, string(0x1F), string(0x016)+"U"+string(0x016), -1)
-	t = strings.Replace(t, string(0x03), string(0x016)+"C"+string(0x016), -1)
-	t = strings.Replace(t, string(0x02), string(0x016)+"B"+string(0x016), -1)
+	t = strings.Replace(t, string(rune(0x1F)), string(rune(0x016))+"U"+string(rune(0x016)), -1)
+	t = strings.Replace(t, string(rune(0x03)), string(rune(0x016))+"C"+string(rune(0x016)), -1)
+	t = strings.Replace(t, string(rune(0x02)), string(rune(0x016))+"B"+string(rune(0x016)), -1)
 	i.Text = i.prefix + t
 }
 
@@ -164,7 +164,7 @@ func (i *TextInput) Len() int {
 	return len(i.input)
 }
 
-// Len returns the cursor position in the contents of the TextInput.
+// Pos returns the cursor position in the contents of the TextInput.
 func (i *TextInput) Pos() int {
 	i.Lock()
 	defer i.Unlock()
@@ -190,7 +190,7 @@ func (i *TextInput) Append(in string) {
 	i.update()
 }
 
-// Remove the last character from the end of the editable content.
+// Backspace removes the previous character from the current position of the editable content.
 func (i *TextInput) Backspace() {
 	i.Lock()
 	defer i.Unlock()
@@ -201,7 +201,7 @@ func (i *TextInput) Backspace() {
 	}
 }
 
-// Remove the last character from the end of the editable content.
+// DeleteNext removes the next character from the current position of the editable content.
 func (i *TextInput) DeleteNext() {
 	i.Lock()
 	defer i.Unlock()

@@ -5,3 +5,7 @@ plugins
 squirssi*.log
 vendor/
 config.toml
+*-packr.go
+node_modules
+yarn.lock
+package-lock.json

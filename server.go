@@ -8,6 +8,7 @@ import (
 
 	"code.dopame.me/veonik/squircy3/event"
 	"code.dopame.me/veonik/squircy3/irc"
+	"code.dopame.me/veonik/squircy3/vm"
 	ui "github.com/gizak/termui/v3"
 	tb "github.com/nsf/termbox-go"
 	"github.com/sirupsen/logrus"
@@ -15,8 +16,6 @@ import (
 	"code.dopame.me/veonik/squirssi/colors"
 	"code.dopame.me/veonik/squirssi/widget"
 )
-
-var Version = "SNAPSHOT"
 
 // A Server handles user interaction and displaying screen elements.
 type Server struct {
@@ -34,10 +33,11 @@ type Server struct {
 
 	events *event.Dispatcher
 	irc    *irc.Manager
+	vm     *vm.VM
 
 	currentNick string
 
-	wm      *WindowManager
+	windows *WindowManager
 	history *HistoryManager
 	tabber  *TabCompleter
 
@@ -50,22 +50,23 @@ type Server struct {
 }
 
 // NewServer creates a new server.
-func NewServer(ev *event.Dispatcher, irc *irc.Manager) (*Server, error) {
+func NewServer(ev *event.Dispatcher, irc *irc.Manager, jsvm *vm.VM) (*Server, error) {
 	srv := &Server{
 		Logger:        logrus.StandardLogger(),
 		outputLogHook: newLogFileWriterHook(),
 
 		events: ev,
 		irc:    irc,
+		vm:     jsvm,
 
-		wm:      NewWindowManager(ev),
+		windows: NewWindowManager(ev),
 		history: NewHistoryManager(),
 		tabber:  NewTabCompleter(),
 
 		done: make(chan struct{}),
 	}
 	srv.initUI()
-	srv.Logger.SetOutput(srv.wm.Index(0))
+	srv.Logger.SetOutput(srv.windows.Index(0))
 	srv.Logger.SetFormatter(&statusFormatter{})
 	srv.Logger.AddHook(srv.outputLogHook)
 	return srv, nil
@@ -109,6 +110,8 @@ func (srv *Server) initUI() {
 	ui.StyleParserColorMap["gray100"] = colors.Grey100
 	ui.StyleParserColorMap["grey100"] = colors.Grey100
 	ui.StyleParserColorMap["red4"] = colors.Red4
+	ui.StyleParserColorMap["dodgerblue3"] = colors.DodgerBlue3
+	ui.StyleParserColorMap["orange"] = colors.Orange1
 
 	srv.userListPane = widget.NewUserList()
 	srv.userListPane.Rows = []string{}
@@ -168,13 +171,13 @@ func (srv *Server) Close() {
 func (srv *Server) Update() {
 	srv.mu.Lock()
 	defer srv.mu.Unlock()
-	srv.statusBar.ActiveTabIndex = srv.wm.ActiveIndex()
-	win := srv.wm.Active()
+	srv.statusBar.ActiveTabIndex = srv.windows.ActiveIndex()
+	win := srv.windows.Active()
 	if win == nil {
 		return
 	}
 	win.Touch()
-	srv.statusBar.TabNames, srv.statusBar.TabsWithActivity = srv.wm.TabNames()
+	srv.statusBar.TabNames, srv.statusBar.TabsWithActivity = srv.windows.TabNames()
 	srv.chatPane.SelectedRow = win.CurrentLine()
 	srv.chatPane.Rows = win.Lines()
 	srv.chatPane.Title = win.Title()

@@ -36,13 +36,13 @@ func onUIKeyPress(srv *Server, key string) {
 	}
 	switch key {
 	case "<C-c>":
-		srv.inputTextBox.Append(string(0x03))
+		srv.inputTextBox.Append(string(rune(0x03)))
 		srv.RenderOnly(InputTextBox)
 	case "<C-u>":
-		srv.inputTextBox.Append(string(0x1F))
+		srv.inputTextBox.Append(string(rune(0x1F)))
 		srv.RenderOnly(InputTextBox)
 	case "<C-b>":
-		srv.inputTextBox.Append(string(0x02))
+		srv.inputTextBox.Append(string(rune(0x02)))
 		srv.RenderOnly(InputTextBox)
 	case "<M-b>":
 		srv.inputTextBox.CursorPrevWord()
@@ -60,12 +60,12 @@ func onUIKeyPress(srv *Server, key string) {
 		srv.mu.RLock()
 		h := srv.pageSize - 2
 		srv.mu.RUnlock()
-		srv.wm.ScrollOffset(-h)
+		srv.windows.ScrollOffset(-h)
 	case "<PageDown>":
 		srv.mu.RLock()
 		h := srv.pageSize - 2
 		srv.mu.RUnlock()
-		srv.wm.ScrollOffset(h)
+		srv.windows.ScrollOffset(h)
 	case "<M-<PageUp>>":
 		srv.mu.Lock()
 		h := srv.pageSize - 2
@@ -91,11 +91,11 @@ func onUIKeyPress(srv *Server, key string) {
 		srv.inputTextBox.DeleteNext()
 		srv.RenderOnly(InputTextBox)
 	case "<C-5>":
-		srv.wm.SelectNext()
+		srv.windows.SelectNext()
 	case "<Escape>":
-		srv.wm.SelectPrev()
+		srv.windows.SelectPrev()
 	case "<Up>":
-		win := srv.wm.Active()
+		win := srv.windows.Active()
 		if win == nil {
 			return
 		}
@@ -107,7 +107,7 @@ func onUIKeyPress(srv *Server, key string) {
 		srv.inputTextBox.Set(msg)
 		srv.RenderOnly(InputTextBox)
 	case "<Down>":
-		win := srv.wm.Active()
+		win := srv.windows.Active()
 		if win == nil {
 			return
 		}
@@ -125,7 +125,7 @@ func onUIKeyPress(srv *Server, key string) {
 		srv.inputTextBox.CursorNext()
 		srv.RenderOnly(InputTextBox)
 	case "<Tab>":
-		win := srv.wm.Active()
+		win := srv.windows.Active()
 		if ch, ok := win.(*Channel); ok {
 			var tabbed string
 			if srv.tabber.Active() {
@@ -138,8 +138,8 @@ func onUIKeyPress(srv *Server, key string) {
 		srv.RenderOnly(InputTextBox)
 	case "<Enter>":
 		in := srv.inputTextBox.Consume()
-		active := srv.wm.ActiveIndex()
-		channel := srv.wm.Active()
+		active := srv.windows.ActiveIndex()
+		channel := srv.windows.Active()
 		if channel == nil {
 			return
 		}

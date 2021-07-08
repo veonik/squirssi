@@ -106,6 +106,7 @@ var debugIgnore = map[string]struct{}{
 	"366": {},
 	"353": {},
 	"324": {},
+	"329": {},
 	"331": {},
 	"332": {},
 	"001": {},
@@ -119,6 +120,13 @@ var debugIgnore = map[string]struct{}{
 	"250": {},
 	"265": {},
 	"266": {},
+	"311": {},
+	"312": {},
+	"313": {},
+	"317": {},
+	"318": {},
+	"319": {},
+	"369": {},
 	"375": {},
 	"372": {},
 	"376": {},
@@ -161,29 +169,17 @@ func HandleIRCEvent(srv *Server, h IRCEventHandler) event.Handler {
 
 func onIRC324(srv *Server, ev *IRCEvent) {
 	modes := strings.Join(ev.Args[2:], " ")
-	win := srv.wm.Named(ev.Args[1])
-	blankBefore := false
+	win := srv.windows.Named(ev.Args[1])
 	if ch, ok := win.(*Channel); ok {
 		ch.mu.Lock()
-		if ch.modes == "" {
-			blankBefore = true
-		}
 		ch.modes = modes
 		ch.mu.Unlock()
-	}
-	if win == nil {
-		logrus.Warnln("received MODES for something without a window:", ev.Args[1], ev.Args[2:])
-		return
-	}
-	// dont write the message the first time we get modes since that is done automatically on join
-	if !blankBefore {
-		WriteModes(win, modes)
 	}
 }
 
 func onIRC331(srv *Server, ev *IRCEvent) {
 	target := ev.Args[1]
-	win := srv.wm.Named(target)
+	win := srv.windows.Named(target)
 	if ch, ok := win.(*Channel); ok {
 		ch.mu.Lock()
 		ch.topic = ""
@@ -194,7 +190,7 @@ func onIRC331(srv *Server, ev *IRCEvent) {
 
 func onIRC332(srv *Server, ev *IRCEvent) {
 	target := ev.Args[1]
-	win := srv.wm.Named(target)
+	win := srv.windows.Named(target)
 	if ch, ok := win.(*Channel); ok {
 		topic := strings.Join(ev.Args[2:], " ")
 		ch.mu.Lock()
@@ -231,11 +227,16 @@ func onIRCMode(srv *Server, ev *IRCEvent) {
 	} else if target == currNick {
 		nick = MyNick(target)
 	}
-	win := srv.wm.Named(target)
+	win := srv.windows.Named(target)
 	if win != nil {
 		WriteMode(win, nick, mode)
+		onIRCNames(srv, ev)
+		srv.IRCDoAsync(func(conn *irc.Connection) error {
+			conn.Mode(target)
+			return nil
+		})
 	} else {
-		WriteMode(srv.wm.Index(0), nick, mode)
+		WriteMode(srv.windows.Index(0), nick, mode)
 	}
 }
 
@@ -246,7 +247,7 @@ func onIRCTopic(srv *Server, ev *IRCEvent) {
 	if ev.Nick == srv.CurrentNick() {
 		nick.me = true
 	}
-	win := srv.wm.Named(target)
+	win := srv.windows.Named(target)
 	if win != nil {
 		WriteTopic(win, nick, topic)
 	} else {
@@ -269,7 +270,7 @@ func onIRCNick(srv *Server, ev *IRCEvent) {
 		newNick.me = true
 		srv.setCurrentNick(newNick.string)
 	}
-	WriteNick(srv.wm, nick, newNick)
+	WriteNick(srv.windows, nick, newNick)
 }
 
 func onIRCKick(srv *Server, ev *IRCEvent) {
@@ -294,7 +295,7 @@ func onIRCKick(srv *Server, ev *IRCEvent) {
 			}
 		}()
 	}
-	win := srv.wm.Named(channel)
+	win := srv.windows.Named(channel)
 	if win == nil {
 		logrus.Errorln("received kick with no Window:", channel, ev.Message, ev.Nick)
 		return
@@ -314,7 +315,7 @@ func onIRC353(srv *Server, ev *IRCEvent) {
 	// NAMES
 	chanName := ev.Args[2]
 	nicks := strings.Split(ev.Args[3], " ")
-	win := srv.wm.Named(chanName)
+	win := srv.windows.Named(chanName)
 	if win == nil {
 		logrus.Warnln("received NAMES for channel with no window:", chanName)
 		return
@@ -327,7 +328,7 @@ func onIRC353(srv *Server, ev *IRCEvent) {
 func onIRC366(srv *Server, ev *IRCEvent) {
 	// END NAMES
 	chanName := ev.Args[1]
-	win := srv.wm.Named(chanName)
+	win := srv.windows.Named(chanName)
 	if win == nil {
 		logrus.Warnln("received END NAMES for channel with no window:", chanName)
 		return
@@ -341,7 +342,7 @@ func onIRC366(srv *Server, ev *IRCEvent) {
 	defer namesCache.Unlock()
 	ch.SetUsers(namesCache.values[chanName])
 	delete(namesCache.values, chanName)
-	srv.wm.events.Emit("ui.DIRTY", nil)
+	srv.windows.events.Emit("ui.DIRTY", nil)
 }
 
 func onIRCError(srv *Server, ev *IRCEvent) {
@@ -351,19 +352,19 @@ func onIRCError(srv *Server, ev *IRCEvent) {
 	} else {
 		kind = ev.Target
 	}
-	win := srv.wm.Named(kind)
+	win := srv.windows.Named(kind)
 	WriteError(win, kind, ev.Message)
 }
 
 func onIRCWhois(srv *Server, ev *IRCEvent) {
 	nick := ev.Args[1]
 	data := ev.Args[2:]
-	win := srv.wm.Named(nick)
+	win := srv.windows.NamedOrActive(nick)
 	WriteWhois(win, nick, data)
 }
 
 func onIRCMessage(srv *Server, ev *IRCEvent) {
-	win := srv.wm.Index(0)
+	win := srv.windows.Index(0)
 	WriteMessage(win, strings.Join(ev.Args[1:], " "))
 }
 
@@ -386,7 +387,7 @@ func onIRCNames(srv *Server, ev *IRCEvent) {
 
 func onIRCJoin(srv *Server, ev *IRCEvent) {
 	target := ev.Target
-	win := srv.wm.Named(target)
+	win := srv.windows.Named(target)
 	nick := SomeNick(ev.Nick)
 	if ev.Nick == srv.CurrentNick() {
 		nick.me = true
@@ -395,13 +396,15 @@ func onIRCJoin(srv *Server, ev *IRCEvent) {
 		ch := &Channel{
 			bufferedWindow: newBufferedWindow(target, srv.events),
 			users:          []User{},
-			usersIndexed:   make(map[string]int),
 		}
-		srv.wm.Append(ch)
+		srv.windows.Append(ch)
 		win = ch
 		if nick.me {
-			srv.wm.SelectIndex(srv.wm.Len() - 1)
-			modeChange(srv, []string{"mode"})
+			srv.windows.SelectIndex(srv.windows.Len() - 1)
+			srv.IRCDoAsync(func(conn *irc.Connection) error {
+				conn.Mode(target)
+				return nil
+			})
 		}
 	}
 	if ch, ok := win.(*Channel); ok {
@@ -413,7 +416,7 @@ func onIRCJoin(srv *Server, ev *IRCEvent) {
 func onIRCPart(srv *Server, ev *IRCEvent) {
 	target := ev.Target
 	nick := SomeNick(ev.Nick)
-	win := srv.wm.Named(target)
+	win := srv.windows.Named(target)
 	if ev.Nick == srv.CurrentNick() {
 		nick.me = true
 	}
@@ -440,14 +443,14 @@ func onIRCAction(srv *Server, ev *IRCEvent) {
 		direct = true
 		target = nick
 	}
-	win := srv.wm.Named(target)
+	win := srv.windows.Named(target)
 	if win == nil {
 		if !direct {
 			logrus.Warnln("received action message with no Window:", target, ev.Message, nick)
 			return
 		} else {
 			ch := &DirectMessage{bufferedWindow: newBufferedWindow(target, srv.events)}
-			srv.wm.Append(ch)
+			srv.windows.Append(ch)
 			win = ch
 		}
 	}
@@ -465,14 +468,14 @@ func onIRCPrivmsg(srv *Server, ev *IRCEvent) {
 		direct = true
 		target = nick
 	}
-	win := srv.wm.Named(target)
+	win := srv.windows.Named(target)
 	if win == nil {
 		if !direct {
 			logrus.Warnln("received message with no Window:", target, ev.Message, nick)
 			return
 		} else {
 			ch := &DirectMessage{bufferedWindow: newBufferedWindow(target, srv.events)}
-			srv.wm.Append(ch)
+			srv.windows.Append(ch)
 			win = ch
 		}
 	}
@@ -490,9 +493,9 @@ func onIRCNotice(srv *Server, ev *IRCEvent) {
 	if target.me {
 		target = SomeTarget(ev.Nick, me)
 	}
-	win := srv.wm.Named(target.string)
+	win := srv.windows.Named(target.string)
 	if win == nil {
-		win = srv.wm.Index(0)
+		win = srv.windows.Index(0)
 	}
 
 	if strings.Contains(ev.Message, "\x01") {
@@ -508,5 +511,5 @@ func onIRCQuit(srv *Server, ev *IRCEvent) {
 	if ev.Nick == srv.CurrentNick() {
 		nick.me = true
 	}
-	WriteQuit(srv.wm, nick, message)
+	WriteQuit(srv.windows, nick, message)
 }

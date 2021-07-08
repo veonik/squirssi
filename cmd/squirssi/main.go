@@ -3,81 +3,65 @@ package main
 import (
 	"flag"
 	"fmt"
+	"io/ioutil"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 
-	"code.dopame.me/veonik/squircy3/cli"
-	"code.dopame.me/veonik/squircy3/plugin"
+	"github.com/gobuffalo/packr/v2"
+	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
-	tilde "gopkg.in/mattes/go-expand-tilde.v1"
+	_ "gopkg.in/mattes/go-expand-tilde.v1"
 
+	"code.dopame.me/veonik/squircy3/cli"
+	"code.dopame.me/veonik/squircy3/irc"
+	"code.dopame.me/veonik/squircy3/plugin"
 	"code.dopame.me/veonik/squirssi"
 )
 
-type stringsFlag []string
+var SquirssiVersion = "SNAPSHOT"
+var Squircy3Version = "SNAPSHOT"
 
-func (s stringsFlag) String() string {
-	return strings.Join(s, "")
-}
-func (s *stringsFlag) Set(str string) error {
-	*s = append(*s, str)
-	return nil
+type Manager struct {
+	*cli.Manager
 }
 
-type stringLevel logrus.Level
-
-func (s stringLevel) String() string {
-	return logrus.Level(s).String()
-}
-func (s *stringLevel) Set(str string) error {
-	l, err := logrus.ParseLevel(str)
+func (m *Manager) Start() (err error) {
+	if err := m.Manager.Start(); err != nil {
+		return err
+	}
+	logrus.Infof("Starting squirssi (version %s, built with squircy3-%s)", SquirssiVersion, Squircy3Version)
+	plugins := m.Plugins()
+	printPluginsLoaded(plugins)
+	ircp, err := irc.FromPlugins(plugins)
 	if err != nil {
 		return err
 	}
-	*s = stringLevel(l)
-	return nil
+	ircp.SetVersionString(fmt.Sprintf("squirssi %s", SquirssiVersion))
+	srv, err := squirssi.FromPlugins(plugins)
+	if err != nil {
+		return err
+	}
+	srv.OnInterrupt(m.Stop)
+	return srv.Start()
 }
 
-type pluginOptsFlag map[string]interface{}
-
-func (s pluginOptsFlag) String() string {
-	var res []string
-	for k, v := range s {
-		res = append(res, fmt.Sprintf("%s=%s", k, v))
+func NewManager() (*Manager, error) {
+	cm, err := cli.NewManager()
+	if err != nil {
+		return nil, err
 	}
-	return strings.Join(res, " ")
+	cm.LinkedPlugins = append(cm.LinkedPlugins, linkedPlugins...)
+	return &Manager{cm}, nil
 }
-
-func (s pluginOptsFlag) Set(str string) error {
-	p := strings.SplitN(str, "=", 2)
-	if len(p) == 1 {
-		p = append(p, "true")
-	}
-	var v interface{}
-	if p[1] == "true" {
-		v = true
-	} else if p[1] == "false" {
-		v = false
-	} else {
-		v = p[1]
-	}
-	s[p[0]] = v
-	return nil
-}
-
-var rootDir string
-var extraPlugins stringsFlag
-var pluginOptions pluginOptsFlag
-var logLevel = stringLevel(logrus.InfoLevel)
-
-var Squircy3Version = "SNAPSHOT"
 
 func init() {
-	flag.StringVar(&rootDir, "root", "~/.squirssi", "path to folder containing squirssi data")
-	flag.Var(&logLevel, "log-level", "controls verbosity of logging output")
-	flag.Var(&extraPlugins, "plugin", "path to shared plugin .so file, multiple plugins may be given")
-	flag.Var(&pluginOptions, "plugin-option", "specify extra plugin configuration option, format: key=value")
+	printVersion := false
+	cli.CoreFlags(flag.CommandLine, "~/.squirssi")
+	cli.IRCFlags(flag.CommandLine)
+	cli.VMFlags(flag.CommandLine)
+	flag.BoolVar(&printVersion, "version", false, "print version information")
 
 	flag.Usage = func() {
 		fmt.Println("Usage: ", os.Args[0], "[options]")
@@ -88,15 +72,11 @@ func init() {
 		flag.PrintDefaults()
 	}
 	flag.Parse()
-	bp, err := tilde.Expand(rootDir)
-	if err != nil {
-		logrus.Fatalln(err)
+
+	if printVersion {
+		fmt.Printf("squirssi (version %s, built with squircy3-%s)\n", SquirssiVersion, Squircy3Version)
+		os.Exit(0)
 	}
-	err = os.MkdirAll(bp, 0644)
-	if err != nil {
-		logrus.Fatalln(err)
-	}
-	rootDir = bp
 }
 
 func printPluginsLoaded(plugins *plugin.Manager) {
@@ -105,44 +85,55 @@ func printPluginsLoaded(plugins *plugin.Manager) {
 	logrus.Infoln("Loaded plugins:", strings.Join(pls, ", "))
 }
 
-type Manager struct {
-	*cli.Manager
-}
-
-func (m *Manager) Start() (err error) {
-	if err := m.Manager.Start(); err != nil {
-		return err
+func unboxAll(rootDir string) (modified bool, err error) {
+	if _, err = os.Stat(filepath.Join(rootDir, "config.toml")); err == nil {
+		// root directory already exists, don't muck with it
+		return false, nil
 	}
-	logrus.Infof("Starting squirssi (version %s, built with squircy3-%s)", squirssi.Version, Squircy3Version)
-	plugins := m.Plugins()
-	printPluginsLoaded(plugins)
-	srv, err := squirssi.FromPlugins(plugins)
-	if err != nil {
-		return err
+	if err = os.MkdirAll(rootDir, 0755); err != nil {
+		return false, errors.Wrap(err, "failed to create root directory")
 	}
-	srv.OnInterrupt(m.Stop)
-	return srv.Start()
-}
-
-func NewManager(rootDir string, extraPlugins ...string) (*Manager, error) {
-	cm, err := cli.NewManager(rootDir, pluginOptions, extraPlugins...)
-	if err != nil {
-		return nil, err
+	box := packr.New("defconf", "./defconf")
+	for _, f := range box.List() {
+		dst := filepath.Join(rootDir, f)
+		if _, err := os.Stat(dst); os.IsNotExist(err) {
+			if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
+				return true, errors.Wrap(err, "failed to recreate directory")
+			}
+			logrus.Infof("Creating default %s", dst)
+			d, err := box.Find(f)
+			if err != nil {
+				return true, errors.Wrapf(err, "failed to get contents of boxed %s", f)
+			}
+			if err := ioutil.WriteFile(dst, d, 0644); err != nil {
+				return true, errors.Wrapf(err, "failed to write unboxed file %s", f)
+			}
+		}
 	}
-	cm.LinkedPlugins = append(cm.LinkedPlugins, plugin.InitializerFunc(squirssi.Initialize))
-	return &Manager{cm}, nil
+	return true, nil
 }
 
 func main() {
-	logrus.SetLevel(logrus.Level(logLevel))
-	m, err := NewManager(rootDir, extraPlugins...)
+	logrus.SetLevel(logrus.InfoLevel)
+	m, err := NewManager()
 	if err != nil {
-		logrus.Fatalln("error initializing squirssi:", err)
+		logrus.Fatalln("core: error initializing squirssi:", err)
+	}
+	logrus.SetLevel(m.LogLevel)
+	if modified, err := unboxAll(m.RootDir); err != nil {
+		logrus.Fatalln("core: failed to unbox defaults:", err)
+	} else if modified {
+		// re-initialize the manager so that plugins load
+		m, err = NewManager()
+		if err != nil {
+			logrus.Fatalln("core: error initializing squirssi:", err)
+		}
+		logrus.SetLevel(m.LogLevel)
 	}
 	if err := m.Start(); err != nil {
-		logrus.Fatalln("error starting squirssi:", err)
+		logrus.Fatalln("core: error starting squirssi:", err)
 	}
 	if err = m.Loop(); err != nil {
-		logrus.Fatalln("exiting main loop with error:", err)
+		logrus.Fatalln("core: exiting main loop with error:", err)
 	}
 }
